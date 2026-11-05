@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0E151C">
+<title>DailyFuel</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* Layout: app de una pantalla, contenido arriba y navegación fija abajo (pulgar en Android) */
+:root{
+  --bg:#EEF2F5; --surface:#FFFFFF; --ink:#13202B; --muted:#5B6976; --line:#D9E1E8;
+  --accent:#D97A06; --accent-ink:#FFFFFF; --soft:#FCEBD3;
+  --good:#18916A; --good-soft:#D6F1E6; --bad:#CC3F37; --bad-soft:#F8DDDB; --idle:#E3E8ED;
+  --display:"Bricolage Grotesque", "Segoe UI", Roboto, sans-serif;
+  --body:"Manrope", "Segoe UI", Roboto, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0E151C; --surface:#17212B; --ink:#E7EDF2; --muted:#93A2AF; --line:#26333F;
+    --accent:#F2A229; --accent-ink:#1A1205; --soft:#3A2A12;
+    --good:#3CC48F; --good-soft:#123A2C; --bad:#F06A60; --bad-soft:#3F1C1A; --idle:#212D38;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0E151C; --surface:#17212B; --ink:#E7EDF2; --muted:#93A2AF; --line:#26333F;
+  --accent:#F2A229; --accent-ink:#1A1205; --soft:#3A2A12;
+  --good:#3CC48F; --good-soft:#123A2C; --bad:#F06A60; --bad-soft:#3F1C1A; --idle:#212D38;
+  color-scheme: dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.45;-webkit-tap-highlight-color:transparent}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+h1,h2,h3{font-family:var(--display);margin:0;text-wrap:balance;line-height:1.15}
+.num{font-variant-numeric:tabular-nums}
+.app{max-width:560px;margin:0 auto;min-height:100%;display:flex;flex-direction:column}
+header.top{display:flex;align-items:center;justify-content:space-between;padding:16px 16px 4px}
+.brand{font-family:var(--display);font-weight:800;font-size:22px;letter-spacing:-.02em}
+.brand span{color:var(--accent)}
+main{flex:1;padding:8px 16px 104px;display:flex;flex-direction:column;gap:14px}
+nav.tabs{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line);display:flex;justify-content:center;padding:6px 8px calc(6px + env(safe-area-inset-bottom));z-index:5}
+nav.tabs .inner{display:grid;grid-template-columns:repeat(4,1fr);width:100%;max-width:560px}
+nav.tabs button{background:none;border:0;padding:8px 4px;border-radius:12px;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:12px;font-weight:600;color:var(--muted)}
+nav.tabs button svg{width:24px;height:24px}
+nav.tabs button[aria-current="page"]{color:var(--accent);background:var(--soft)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:16px}
+.row{display:flex;align-items:center;gap:10px}
+.between{justify-content:space-between}
+.muted{color:var(--muted)}
+.small{font-size:13px}
+.datebar{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.datebar .label{font-weight:700;text-align:center;flex:1}
+.iconbtn{width:42px;height:42px;border-radius:12px;border:1px solid var(--line);background:var(--surface);display:grid;place-items:center}
+.iconbtn:disabled{opacity:.35;cursor:default}
+.iconbtn svg{width:20px;height:20px}
+.hero{display:grid;grid-template-columns:150px 1fr;gap:16px;align-items:center}
+.ring{position:relative;width:150px;height:150px}
+.ring svg{width:150px;height:150px;transform:rotate(-90deg)}
+.ring .center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+.ring .big{font-family:var(--display);font-weight:800;font-size:32px;letter-spacing:-.02em}
+.stats{display:flex;flex-direction:column;gap:8px}
+.stat .k{font-size:13px;color:var(--muted)}
+.stat .v{font-weight:700;font-size:20px}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:13px;font-weight:700;width:max-content}
+.pill.good{background:var(--good-soft);color:var(--good)}
+.pill.bad{background:var(--bad-soft);color:var(--bad)}
+.pill.idle{background:var(--idle);color:var(--muted)}
+.pill.prog{background:var(--soft);color:var(--accent)}
+.meal h3{font-size:16px;display:flex;justify-content:space-between;align-items:baseline}
+.meal h3 .num{font-family:var(--body);font-size:14px;color:var(--muted);font-weight:600}
+.list{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column}
+.list li{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.list li:first-child{border-top:0}
+.list .grow{flex:1;min-width:0}
+.list .name{font-weight:600;overflow-wrap:anywhere}
+.list .kc{font-weight:700;white-space:nowrap}
+.del{background:none;border:0;color:var(--muted);width:36px;height:36px;border-radius:10px;display:grid;place-items:center}
+.del:hover{background:var(--idle)}
+.del svg{width:18px;height:18px}
+.btn{border:0;border-radius:14px;padding:13px 18px;font-weight:700;background:var(--accent);color:var(--accent-ink)}
+.btn.ghost{background:transparent;border:1px solid var(--line);color:var(--ink)}
+.btn.danger{background:var(--bad);color:#fff}
+.btn.block{width:100%}
+.fab{position:fixed;right:max(16px, calc(50% - 264px));bottom:calc(84px + env(safe-area-inset-bottom));z-index:6;border-radius:18px;padding:15px 20px;display:flex;align-items:center;gap:8px;box-shadow:0 8px 24px rgba(0,0,0,.18)}
+.fab svg{width:20px;height:20px}
+.fab[hidden]{display:none}
+.empty{color:var(--muted);text-align:center;padding:18px 8px}
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;background:var(--idle);border-radius:12px;padding:4px;gap:4px}
+.seg button{border:0;background:none;padding:9px;border-radius:9px;font-weight:700;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+label.f{display:flex;flex-direction:column;gap:6px;font-weight:600;font-size:14px}
+input[type=text],input[type=number],input[type=search],select{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--bg);font-size:16px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{border:1px solid var(--line);background:var(--bg);border-radius:999px;padding:7px 12px;font-size:14px;font-weight:600}
+.chip[aria-pressed="true"]{border-color:var(--accent);background:var(--soft);color:var(--ink)}
+.calc{background:var(--soft);border-radius:12px;padding:12px 14px;font-weight:700;display:flex;justify-content:space-between}
+/* sheet */
+.scrim{position:fixed;inset:0;background:rgba(5,10,15,.5);display:flex;align-items:flex-end;justify-content:center;z-index:20}
+.sheet{background:var(--surface);width:100%;max-width:560px;max-height:92%;overflow:auto;border-radius:22px 22px 0 0;padding:18px 16px calc(20px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:14px}
+.sheet .grab{width:40px;height:4px;border-radius:4px;background:var(--line);margin:0 auto}
+.sheet h2{font-size:22px}
+.plist{display:flex;flex-direction:column;gap:6px;max-height:240px;overflow:auto}
+.plist button{text-align:left;border:1px solid var(--line);background:var(--bg);border-radius:12px;padding:10px 12px;display:flex;justify-content:space-between;gap:8px}
+.plist button[aria-pressed="true"]{border-color:var(--accent);background:var(--soft)}
+/* summary */
+.statgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px}
+.tile .v{font-family:var(--display);font-weight:800;font-size:24px}
+.tile .k{font-size:12px;color:var(--muted);font-weight:600}
+.chart{width:100%;overflow-x:auto}
+.chart svg{width:100%;height:auto;display:block}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}
+.cal .h{font-size:12px;text-align:center;color:var(--muted);font-weight:700}
+.cal .d{aspect-ratio:1;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:13px;font-weight:700;background:var(--idle);color:var(--muted);border:0;padding:0}
+.cal .d small{font-size:9px;font-weight:600;opacity:.85}
+.cal .d.met{background:var(--good-soft);color:var(--good)}
+.cal .d.miss{background:var(--bad-soft);color:var(--bad)}
+.cal .d.today{outline:2px solid var(--accent);outline-offset:-2px;color:var(--ink)}
+.cal .d.future{opacity:.4}
+.cal .blank{background:none}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:4px;margin-right:6px;vertical-align:-1px}
+.banner{background:var(--bad-soft);color:var(--bad);border-radius:14px;padding:10px 14px;font-size:14px;font-weight:600}
+.toast{position:fixed;left:50%;bottom:calc(150px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-weight:600;z-index:30;max-width:90%}
+.stack{display:flex;flex-direction:column;gap:12px}
+.hint{font-size:13px;color:var(--muted)}
+@media (max-width:380px){.hero{grid-template-columns:1fr;justify-items:center}.stats{width:100%}}
+@media (prefers-reduced-motion:no-preference){.ring circle.prog{transition:stroke-dashoffset .5s ease}.sheet{animation:up .22s ease}}
+@keyframes up{from{transform:translateY(30px);opacity:.6}to{transform:none;opacity:1}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand">Daily<span>Fuel</span></div>
+    <div class="small muted" id="hdrGoal"></div>
+  </header>
+  <main id="view" aria-live="polite"></main>
+</div>
+<button class="btn fab" id="fab" aria-label="Agregar comida">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+  Agregar
+</button>
+<nav class="tabs" aria-label="Secciones"><div class="inner">
+  <button data-view="hoy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>Hoy</button>
+  <button data-view="productos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8l8-4 8 4-8 4-8-4z"/><path d="M4 8v8l8 4 8-4V8"/><path d="M12 12v8"/></svg>Productos</button>
+  <button data-view="resumen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 20V11M12 20V5M19 20v-6"/></svg>Resumen</button>
+  <button data-view="ajustes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Ajustes</button>
+</div></nav>
+
+<script>
+"use strict";
+/* ---------- Datos ---------- */
+const KEY = "dailyfuel.v1";
+const MEALS = [["desayuno","Desayuno"],["almuerzo","Almuerzo"],["once","Once"],["cena","Cena"],["colacion","Colación"]];
+const MEAL_NAME = Object.fromEntries(MEALS);
+const BASIS = {g:"por 100 g", ml:"por 100 ml", porcion:"por porción"};
+let storageOK = true;
+
+function blank(){ return {v:1, goals:[], entries:[], products:[]}; }
+function load(){
+  try{ const s = localStorage.getItem(KEY); if(s){ const d = JSON.parse(s); if(d && Array.isArray(d.entries)) return d; } }
+  catch(e){ storageOK = false; }
+  return null;
+}
+let S = load() || blank();
+function save(){
+  try{ localStorage.setItem(KEY, JSON.stringify(S)); storageOK = true; }
+  catch(e){ storageOK = false; }
+}
+
+/* ---------- Fechas ---------- */
+const pad = n => String(n).padStart(2,"0");
+const iso = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const parse = s => { const [y,m,d] = s.split("-").map(Number); return new Date(y, m-1, d); };
+const addDays = (s,n) => { const d = parse(s); d.setDate(d.getDate()+n); return iso(d); };
+const todayISO = () => iso(new Date());
+const nowHM = () => { const d = new Date(); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+const fmtLong = s => parse(s).toLocaleDateString("es-CL",{weekday:"long", day:"numeric", month:"long"});
+const fmtShort = s => parse(s).toLocaleDateString("es-CL",{day:"numeric", month:"short"});
+const monthName = s => parse(s).toLocaleDateString("es-CL",{month:"long", year:"numeric"});
+const weekStart = s => { const d = parse(s); const off = (d.getDay()+6)%7; d.setDate(d.getDate()-off); return iso(d); };
+const n0 = v => Math.round(v).toLocaleString("es-CL");
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+/* ---------- Meta y cumplimiento ---------- */
+// La meta se guarda con fecha de inicio: cambiarla no reescribe el historial.
+function goalFor(date){
+  if(!S.goals.length) return null;
+  const sorted = [...S.goals].sort((a,b)=>a.from.localeCompare(b.from));
+  let g = sorted[0];
+  for(const x of sorted){ if(x.from <= date) g = x; }
+  return g;
+}
+function setGoal(kcal, mode, tol){
+  const from = todayISO();
+  S.goals = S.goals.filter(g => g.from !== from);
+  S.goals.push({from, kcal, mode, tol});
+  save();
+}
+const dayEntries = d => S.entries.filter(e => e.date === d);
+const dayTotal = d => dayEntries(d).reduce((a,e)=>a+e.kcal, 0);
+function isMet(total, g){
+  if(g.mode === "min") return total >= g.kcal*(1 - g.tol/100);
+  return total <= g.kcal*(1 + g.tol/100);
+}
+// empty | future | today | met | miss | nogoal
+function statusOf(d){
+  const t = todayISO();
+  if(d > t) return "future";
+  const total = dayTotal(d);
+  if(!dayEntries(d).length) return d === t ? "today" : "empty";
+  if(d === t) return "today";
+  const g = goalFor(d);
+  if(!g) return "nogoal";
+  return isMet(total, g) ? "met" : "miss";
+}
+
+/* ---------- Estado de UI ---------- */
+const UI = { view:"hoy", day: todayISO(), sumMode:"semana", sumAnchor: todayISO() };
+let installEvt = null;
+window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); installEvt = e; if(UI.view==="ajustes") render(); });
+
+const $ = (s, r=document) => r.querySelector(s);
+const view = $("#view");
+const ICON = {
+  left:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>',
+  right:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>',
+  trash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>',
+  edit:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16v4z"/></svg>'
+};
+
+function toast(msg){
+  const t = document.createElement("div"); t.className = "toast"; t.textContent = msg;
+  document.body.appendChild(t); setTimeout(()=>t.remove(), 2200);
+}
+
+/* ---------- Hoja inferior (modal) ---------- */
+function openSheet(html, mount){
+  const scrim = document.createElement("div");
+  scrim.className = "scrim";
+  scrim.innerHTML = `<div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>${html}</div>`;
+  const close = () => { scrim.remove(); document.removeEventListener("keydown", onKey); };
+  const onKey = e => { if(e.key === "Escape") close(); };
+  scrim.addEventListener("click", e => { if(e.target === scrim) close(); });
+  document.addEventListener("keydown", onKey);
+  document.body.appendChild(scrim);
+  mount && mount(scrim.querySelector(".sheet"), close);
+  const first = scrim.querySelector("input,select,button.btn");
+  if(first) setTimeout(()=>first.focus(), 60);
+}
+function confirmSheet(title, text, okLabel, onOk, danger=true){
+  openSheet(`<h2>${esc(title)}</h2><p class="muted" style="margin:0">${esc(text)}</p>
+    <div class="grid2"><button class="btn ghost" data-x>Cancelar</button><button class="btn ${danger?"danger":""}" data-ok>${esc(okLabel)}</button></div>`,
+  (el, close) => { el.querySelector("[data-x]").onclick = close; el.querySelector("[data-ok]").onclick = () => { close(); onOk(); }; });
+}
+
+/* ---------- Configuración inicial / meta ---------- */
+function goalSheet(first=false){
+  const g = goalFor(todayISO()) || {kcal:"", mode:"max", tol:5};
+  openSheet(`
+    <h2>${first ? "Define tu meta diaria" : "Cambiar meta diaria"}</h2>
+    ${first ? '<p class="muted" style="margin:0">Ingresa las calorías que quieres para cada día. Puedes cambiarla cuando quieras en Ajustes.</p>' : '<p class="hint" style="margin:0">El cambio rige desde hoy. Los días anteriores se siguen evaluando con la meta que tenían.</p>'}
+    <form class="stack" id="gf">
+      <label class="f" for="gKcal">Meta diaria (kcal)
+        <input id="gKcal" type="number" inputmode="numeric" min="300" max="10000" step="10" required value="${g.kcal}" placeholder="Ej: 2000"></label>
+      <div class="stack" style="gap:6px">
+        <span style="font-weight:600;font-size:14px">¿Cuándo cuenta como día cumplido?</span>
+        <div class="seg" role="group" aria-label="Tipo de meta">
+          <button type="button" data-mode="max" aria-pressed="${g.mode==="max"}">No pasarme</button>
+          <button type="button" data-mode="min" aria-pressed="${g.mode==="min"}">Llegar al mínimo</button>
+        </div>
+      </div>
+      <label class="f" for="gTol">Margen de tolerancia (%)
+        <input id="gTol" type="number" inputmode="numeric" min="0" max="30" step="1" value="${g.tol}"></label>
+      <p class="hint" id="gHelp" style="margin:0"></p>
+      <button class="btn block" type="submit">Guardar meta</button>
+    </form>`,
+  (el, close) => {
+    let mode = g.mode;
+    const help = () => {
+      const k = +el.querySelector("#gKcal").value || 0, t = +el.querySelector("#gTol").value || 0;
+      if(!k){ el.querySelector("#gHelp").textContent = ""; return; }
+      el.querySelector("#gHelp").textContent = mode === "max"
+        ? `Cumples el día si comes hasta ${n0(k*(1+t/100))} kcal.`
+        : `Cumples el día si llegas al menos a ${n0(k*(1-t/100))} kcal.`;
+    };
+    el.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => {
+      mode = b.dataset.mode;
+      el.querySelectorAll("[data-mode]").forEach(x => x.setAttribute("aria-pressed", x === b));
+      help();
+    });
+    el.querySelector("#gKcal").oninput = help; el.querySelector("#gTol").oninput = help; help();
+    el.querySelector("#gf").onsubmit = e => {
+      e.preventDefault();
+      const k = Math.round(+el.querySelector("#gKcal").value);
+      const t = Math.max(0, Math.min(30, Math.round(+el.querySelector("#gTol").value || 0)));
+      if(!k || k < 300){ toast("Ingresa una meta de al menos 300 kcal"); return; }
+      setGoal(k, mode, t); close(); render(); toast("Meta guardada");
+    };
+  });
+}
+
+/* ---------- Agregar comida ---------- */
+function defaultMeal(){
+  const h = new Date().getHours() + new Date().getMinutes()/60;
+  if(h < 11) return "desayuno"; if(h < 16) return "almuerzo"; if(h < 20) return "once"; return "cena";
+}
+function recentNames(){
+  const seen = new Map();
+  [...S.entries].sort((a,b)=> (b.date+b.time).localeCompare(a.date+a.time)).forEach(e => {
+    if(!e.productId && !seen.has(e.name.toLowerCase())) seen.set(e.name.toLowerCase(), e);
+  });
+  return [...seen.values()].slice(0,6);
+}
+function productKcal(p, qty){ return p.basis === "porcion" ? p.kcal*qty : p.kcal*qty/100; }
+function qtyUnit(p){ return p.basis === "g" ? "g" : p.basis === "ml" ? "ml" : (p.portion || "porción"); }
+
+function addSheet(){
+  const date = UI.day;
+  const recents = recentNames();
+  const mealChips = MEALS.map(([k,v]) => `<button type="button" class="chip" data-meal="${k}" aria-pressed="${k===defaultMeal()}">${v}</button>`).join("");
+  openSheet(`
+    <h2>Agregar comida</h2>
+    <p class="hint" style="margin:0">Se registra en: ${esc(fmtLong(date))}</p>
+    <div class="chips" role="group" aria-label="Comida del día">${mealChips}</div>
+    <div class="seg" role="group" aria-label="Forma de registro">
+      <button type="button" data-tab="kcal" aria-pressed="true">Kcal directas</button>
+      <button type="button" data-tab="prod" aria-pressed="false">Mis productos</button>
+    </div>
+    <form class="stack" id="fK">
+      <label class="f" for="kName">Qué comiste
+        <input id="kName" type="text" maxlength="60" placeholder="Ej: Marraqueta con palta" autocomplete="off"></label>
+      <label class="f" for="kVal">Calorías (kcal)
+        <input id="kVal" type="number" inputmode="numeric" min="1" max="5000" step="1" required placeholder="Ej: 350"></label>
+      ${recents.length ? `<div class="stack" style="gap:6px"><span class="hint">Repetir algo reciente</span><div class="chips">${recents.map((r,i)=>`<button type="button" class="chip" data-rec="${i}">${esc(r.name)} · ${n0(r.kcal)}</button>`).join("")}</div></div>` : ""}
+      <button class="btn block" type="submit">Agregar</button>
+    </form>
+    <form class="stack" id="fP" hidden>
+      ${S.products.length ? `
+      <input id="pSearch" type="search" placeholder="Buscar producto" aria-label="Buscar producto" autocomplete="off">
+      <div class="plist" id="pList"></div>
+      <div id="pQty" class="stack" hidden>
+        <label class="f" for="pQ"><span id="pQLabel">Cantidad</span>
+          <input id="pQ" type="number" inputmode="decimal" min="0.1" step="any" required></label>
+        <div class="calc"><span>Total</span><span class="num" id="pCalc">0 kcal</span></div>
+        <button class="btn block" type="submit">Agregar</button>
+      </div>` : `<p class="empty">Aún no tienes productos guardados. Agrégalos en la pestaña Productos y luego podrás sumarlos aquí por gramos o porciones.</p>`}
+    </form>`,
+  (el, close) => {
+    let meal = defaultMeal(), sel = null;
+    el.querySelectorAll("[data-meal]").forEach(b => b.onclick = () => {
+      meal = b.dataset.meal; el.querySelectorAll("[data-meal]").forEach(x => x.setAttribute("aria-pressed", x===b));
+    });
+    el.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => {
+      el.querySelectorAll("[data-tab]").forEach(x => x.setAttribute("aria-pressed", x===b));
+      el.querySelector("#fK").hidden = b.dataset.tab !== "kcal";
+      el.querySelector("#fP").hidden = b.dataset.tab !== "prod";
+    });
+    el.querySelectorAll("[data-rec]").forEach(b => b.onclick = () => {
+      const r = recents[+b.dataset.rec];
+      el.querySelector("#kName").value = r.name; el.querySelector("#kVal").value = r.kcal;
+    });
+    el.querySelector("#fK").onsubmit = e => {
+      e.preventDefault();
+      const kcal = Math.round(+el.querySelector("#kVal").value);
+      if(!kcal || kcal < 1){ toast("Ingresa las calorías"); return; }
+      const name = el.querySelector("#kName").value.trim() || "Sin nombre";
+      S.entries.push({id:uid(), date, time:nowHM(), meal, name, kcal});
+      save(); close(); render(); toast(`+${n0(kcal)} kcal`);
+    };
+    if(!S.products.length) return;
+    const list = el.querySelector("#pList"), q = el.querySelector("#pQ");
+    const calc = () => { if(!sel) return; el.querySelector("#pCalc").textContent = `${n0(productKcal(sel, +q.value || 0))} kcal`; };
+    const draw = () => {
+      const term = el.querySelector("#pSearch").value.trim().toLowerCase();
+      const items = S.products.filter(p => p.name.toLowerCase().includes(term)).sort((a,b)=>a.name.localeCompare(b.name,"es"));
+      list.innerHTML = items.length ? items.map(p => `<button type="button" data-p="${p.id}" aria-pressed="${sel && sel.id===p.id}"><span>${esc(p.name)}</span><span class="muted small num">${n0(p.kcal)} kcal ${BASIS[p.basis]}</span></button>`).join("")
+        : `<p class="empty">Sin resultados</p>`;
+      list.querySelectorAll("[data-p]").forEach(b => b.onclick = () => {
+        sel = S.products.find(p => p.id === b.dataset.p);
+        el.querySelector("#pQty").hidden = false;
+        el.querySelector("#pQLabel").textContent = `Cantidad (${qtyUnit(sel)})`;
+        q.value = sel.basis === "porcion" ? 1 : 100;
+        draw(); calc(); q.focus(); q.select();
+      });
+    };
+    el.querySelector("#pSearch").oninput = draw; q.oninput = calc; draw();
+    el.querySelector("#fP").onsubmit = e => {
+      e.preventDefault();
+      if(!sel){ toast("Elige un producto"); return; }
+      const qty = +q.value; if(!qty || qty <= 0){ toast("Ingresa la cantidad"); return; }
+      const kcal = Math.round(productKcal(sel, qty));
+      const name = `${sel.name} · ${qty.toLocaleString("es-CL")} ${qtyUnit(sel)}`;
+      S.entries.push({id:uid(), date, time:nowHM(), meal, name, kcal, productId:sel.id, qty});
+      save(); close(); render(); toast(`+${n0(kcal)} kcal`);
+    };
+  });
+}
+
+/* ---------- Vista: Hoy ---------- */
+function ringSVG(total, g){
+  const r = 62, c = 2*Math.PI*r;
+  const ratio = g ? Math.min(total / g.kcal, 1) : 0;
+  const over = g && g.mode === "max" && !isMet(total, g);
+  const reached = g && g.mode === "min" && isMet(total, g);
+  const color = over ? "var(--bad)" : reached ? "var(--good)" : "var(--accent)";
+  return `<svg viewBox="0 0 150 150" aria-hidden="true">
+    <circle cx="75" cy="75" r="${r}" fill="none" stroke="var(--idle)" stroke-width="14"/>
+    <circle class="prog" cx="75" cy="75" r="${r}" fill="none" stroke="${color}" stroke-width="14" stroke-linecap="round"
+      stroke-dasharray="${c}" stroke-dashoffset="${c*(1-ratio)}"/></svg>`;
+}
+function statusPill(d){
+  const st = statusOf(d), g = goalFor(d), total = dayTotal(d);
+  if(st === "met") return `<span class="pill good">Día cumplido</span>`;
+  if(st === "miss") return `<span class="pill bad">No cumplido</span>`;
+  if(st === "empty") return `<span class="pill idle">Sin registro</span>`;
+  if(st === "today" && g){
+    if(g.mode === "max") return isMet(total,g) ? `<span class="pill prog">En curso · dentro de la meta</span>` : `<span class="pill bad">Te pasaste de la meta</span>`;
+    return isMet(total,g) ? `<span class="pill good">Mínimo alcanzado</span>` : `<span class="pill prog">En curso</span>`;
+  }
+  return "";
+}
+function renderHoy(){
+  const d = UI.day, g = goalFor(d), total = dayTotal(d), entries = dayEntries(d);
+  const t = todayISO();
+  const remaining = g ? g.kcal - total : null;
+  const label = d === t ? "Hoy" : d === addDays(t,-1) ? "Ayer" : fmtShort(d);
+  let html = `${!storageOK ? `<div class="banner">Este navegador no está guardando datos. Abre la app instalada para que tu registro se conserve.</div>` : ""}
+  <div class="datebar">
+    <button class="iconbtn" id="prevD" aria-label="Día anterior">${ICON.left}</button>
+    <div class="label"><div>${esc(label)}</div><div class="small muted" style="font-weight:500">${esc(fmtLong(d))}</div></div>
+    <button class="iconbtn" id="nextD" aria-label="Día siguiente" ${d >= t ? "disabled" : ""}>${ICON.right}</button>
+  </div>
+  <section class="card hero">
+    <div class="ring">${ringSVG(total, g)}
+      <div class="center"><div class="big num">${n0(total)}</div><div class="small muted">de ${g ? n0(g.kcal) : "—"} kcal</div></div>
+    </div>
+    <div class="stats">
+      ${statusPill(d)}
+      <div class="stat"><div class="k">${remaining === null ? "Meta" : remaining >= 0 ? (g.mode==="max" ? "Te quedan" : "Te faltan") : "Sobre la meta"}</div>
+        <div class="v num">${remaining === null ? "Sin definir" : n0(Math.abs(remaining)) + " kcal"}</div></div>
+      <div class="stat"><div class="k">Registros</div><div class="v num">${entries.length}</div></div>
+    </div>
+  </section>`;
+  if(!entries.length){
+    html += `<section class="card empty">Todavía no registras comidas ${d === t ? "hoy" : "este día"}. Toca <b>Agregar</b> para sumar calorías.</section>`;
+  } else {
+    for(const [k, name] of MEALS){
+      const items = entries.filter(e => e.meal === k).sort((a,b)=>a.time.localeCompare(b.time));
+      if(!items.length) continue;
+      html += `<section class="card meal"><h3>${name}<span class="num">${n0(items.reduce((a,e)=>a+e.kcal,0))} kcal</span></h3>
+        <ul class="list">${items.map(e => `<li><div class="grow"><div class="name">${esc(e.name)}</div><div class="small muted num">${esc(e.time)}</div></div>
+        <div class="kc num">${n0(e.kcal)}</div><button class="del" data-del="${e.id}" aria-label="Eliminar ${esc(e.name)}">${ICON.trash}</button></li>`).join("")}</ul></section>`;
+    }
+  }
+  view.innerHTML = html;
+  $("#prevD").onclick = () => { UI.day = addDays(UI.day,-1); render(); };
+  $("#nextD").onclick = () => { if(UI.day < t){ UI.day = addDays(UI.day,1); render(); } };
+  view.querySelectorAll("[data-del]").forEach(b => b.onclick = () => {
+    const e = S.entries.find(x => x.id === b.dataset.del);
+    confirmSheet("Eliminar registro", `${e.name} · ${n0(e.kcal)} kcal`, "Eliminar", () => {
+      S.entries = S.entries.filter(x => x.id !== e.id); save(); render();
+    });
+  });
+}
+
+/* ---------- Vista: Productos ---------- */
+function productSheet(p){
+  const editing = !!p; p = p || {name:"", basis:"g", kcal:"", portion:""};
+  openSheet(`
+    <h2>${editing ? "Editar producto" : "Nuevo producto"}</h2>
+    <p class="hint" style="margin:0">Copia las calorías de la tabla nutricional del envase.</p>
+    <form class="stack" id="pf">
+      <label class="f" for="pName">Nombre
+        <input id="pName" type="text" maxlength="60" required value="${esc(p.name)}" placeholder="Ej: Yogurt natural Soprole"></label>
+      <div class="grid2">
+        <label class="f" for="pKcal">Calorías (kcal)
+          <input id="pKcal" type="number" inputmode="decimal" min="0" step="any" required value="${p.kcal}" placeholder="Ej: 62"></label>
+        <label class="f" for="pBasis">Medida
+          <select id="pBasis">${Object.entries(BASIS).map(([k,v])=>`<option value="${k}" ${p.basis===k?"selected":""}>${v}</option>`).join("")}</select></label>
+      </div>
+      <label class="f" for="pPortion" id="pPortWrap" ${p.basis==="porcion"?"":"hidden"}>Nombre de la porción (opcional)
+        <input id="pPortion" type="text" maxlength="30" value="${esc(p.portion||"")}" placeholder="Ej: unidad, taza, rebanada"></label>
+      <button class="btn block" type="submit">${editing ? "Guardar cambios" : "Guardar producto"}</button>
+    </form>`,
+  (el, close) => {
+    const basis = el.querySelector("#pBasis");
+    basis.onchange = () => { el.querySelector("#pPortWrap").hidden = basis.value !== "porcion"; };
+    el.querySelector("#pf").onsubmit = e => {
+      e.preventDefault();
+      const data = { name: el.querySelector("#pName").value.trim(), kcal: +el.querySelector("#pKcal").value,
+        basis: basis.value, portion: el.querySelector("#pPortion").value.trim() };
+      if(!data.name){ toast("Ponle un nombre"); return; }
+      if(!(data.kcal >= 0)){ toast("Ingresa las calorías"); return; }
+      if(editing) Object.assign(S.products.find(x => x.id === p.id), data);
+      else S.products.push({id:uid(), ...data});
+      save(); close(); render(); toast(editing ? "Producto actualizado" : "Producto guardado");
+    };
+  });
+}
+function renderProductos(){
+  const items = [...S.products].sort((a,b)=>a.name.localeCompare(b.name,"es"));
+  view.innerHTML = `
+    <div class="row between"><h2 style="font-size:24px">Mis productos</h2><button class="btn" id="newP">Nuevo</button></div>
+    <p class="hint" style="margin:0">Guarda lo que comes seguido. Después lo sumas indicando gramos, ml o porciones.</p>
+    <section class="card">${items.length ? `<ul class="list">${items.map(p => `<li>
+      <div class="grow"><div class="name">${esc(p.name)}</div><div class="small muted num">${n0(p.kcal)} kcal ${p.basis==="porcion" && p.portion ? "por " + esc(p.portion) : BASIS[p.basis]}</div></div>
+      <button class="del" data-edit="${p.id}" aria-label="Editar ${esc(p.name)}">${ICON.edit}</button>
+      <button class="del" data-delp="${p.id}" aria-label="Eliminar ${esc(p.name)}">${ICON.trash}</button></li>`).join("")}</ul>`
+      : `<p class="empty">Aún no tienes productos. Agrega el primero con el botón <b>Nuevo</b>.</p>`}</section>`;
+  $("#newP").onclick = () => productSheet();
+  view.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => productSheet(S.products.find(p => p.id === b.dataset.edit)));
+  view.querySelectorAll("[data-delp]").forEach(b => b.onclick = () => {
+    const p = S.products.find(x => x.id === b.dataset.delp);
+    confirmSheet("Eliminar producto", `${p.name}. Los registros que ya hiciste con él se mantienen.`, "Eliminar", () => {
+      S.products = S.products.filter(x => x.id !== p.id); save(); render();
+    });
+  });
+}
+
+/* ---------- Vista: Resumen ---------- */
+function rangeStats(days){
+  const t = todayISO();
+  const st = days.map(statusOf);
+  const met = st.filter(s => s === "met").length;
+  const miss = st.filter(s => s === "miss").length;
+  const closed = days.filter(d => d < t && dayEntries(d).length);
+  const avg = closed.length ? closed.reduce((a,d)=>a+dayTotal(d),0)/closed.length : null;
+  const total = days.reduce((a,d)=>a+dayTotal(d),0);
+  return {met, miss, avg, total, registered: days.filter(d=>dayEntries(d).length).length};
+}
+function weekChart(days){
+  const W = 340, H = 190, top = 22, bottom = 26, left = 6, right = 6;
+  const totals = days.map(dayTotal);
+  const goals = days.map(d => goalFor(d));
+  const maxV = Math.max(1, ...totals, ...goals.map(g => g ? g.kcal*1.15 : 0));
+  const slot = (W-left-right)/7, bw = slot*0.56;
+  const y = v => top + (H-top-bottom) * (1 - v/maxV);
+  const labels = ["L","M","M","J","V","S","D"];
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Calorías por día de la semana">`;
+  for(let i=0;i<=3;i++){ const yy = top + (H-top-bottom)*i/3; s += `<line x1="${left}" x2="${W-right}" y1="${yy}" y2="${yy}" stroke="var(--line)" stroke-width="1"/>`; }
+  days.forEach((d,i) => {
+    const x = left + slot*i + (slot-bw)/2, v = totals[i], st = statusOf(d);
+    const fill = st === "met" ? "var(--good)" : st === "miss" ? "var(--bad)" : st === "today" ? "var(--accent)" : "var(--idle)";
+    if(v > 0){
+      s += `<rect x="${x}" y="${y(v)}" width="${bw}" height="${H-bottom-y(v)}" rx="6" fill="${fill}"/>`;
+      s += `<text x="${x+bw/2}" y="${y(v)-6}" text-anchor="middle" font-size="10.5" font-weight="700" fill="var(--ink)" class="num">${n0(v)}</text>`;
+    }
+    if(goals[i]) s += `<line x1="${x-4}" x2="${x+bw+4}" y1="${y(goals[i].kcal)}" y2="${y(goals[i].kcal)}" stroke="var(--ink)" stroke-width="2" stroke-dasharray="4 3" opacity=".55"/>`;
+    s += `<text x="${x+bw/2}" y="${H-8}" text-anchor="middle" font-size="12" font-weight="700" fill="${d===todayISO()?"var(--accent)":"var(--muted)"}">${labels[i]}</text>`;
+  });
+  return s + `</svg>`;
+}
+function renderResumen(){
+  const t = todayISO(), a = UI.sumAnchor, isWeek = UI.sumMode === "semana";
+  let days = [], title = "", canNext;
+  if(isWeek){
+    const ws = weekStart(a); days = Array.from({length:7}, (_,i)=>addDays(ws,i));
+    title = `${fmtShort(days[0])} – ${fmtShort(days[6])}`; canNext = days[6] < t;
+  } else {
+    const d = parse(a); const first = new Date(d.getFullYear(), d.getMonth(), 1);
+    const n = new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
+    days = Array.from({length:n}, (_,i)=>iso(new Date(first.getFullYear(), first.getMonth(), i+1)));
+    title = monthName(a); title = title.charAt(0).toUpperCase() + title.slice(1); canNext = days[n-1] < t;
+  }
+  const r = rangeStats(days), evald = r.met + r.miss;
+  let body;
+  if(isWeek){
+    body = `<section class="card stack"><h3 style="font-size:16px">Calorías por día</h3><div class="chart">${weekChart(days)}</div>
+      <div class="legend"><span><i style="background:var(--good)"></i>Cumplido</span><span><i style="background:var(--bad)"></i>No cumplido</span><span><i style="background:var(--accent)"></i>Hoy</span><span>- - Meta</span></div></section>`;
+  } else {
+    const off = (parse(days[0]).getDay()+6)%7;
+    const cells = Array.from({length:off}, ()=>`<div class="d blank" aria-hidden="true"></div>`).join("") + days.map(d => {
+      const st = statusOf(d), v = dayTotal(d);
+      return `<button class="d ${st}" data-go="${d}" aria-label="${esc(fmtLong(d))}: ${v ? n0(v)+" kcal" : "sin registro"}" ${st==="future"?"disabled":""}>${parse(d).getDate()}${v ? `<small class="num">${n0(v)}</small>` : ""}</button>`;
+    }).join("");
+    body = `<section class="card stack"><h3 style="font-size:16px">Calendario</h3>
+      <div class="cal">${["L","M","M","J","V","S","D"].map(x=>`<div class="h">${x}</div>`).join("")}${cells}</div>
+      <div class="legend"><span><i style="background:var(--good-soft);border:1px solid var(--good)"></i>Cumplido</span><span><i style="background:var(--bad-soft);border:1px solid var(--bad)"></i>No cumplido</span><span><i style="background:var(--idle)"></i>Sin registro</span></div>
+      <p class="hint" style="margin:0">Toca un día para ver su detalle.</p></section>`;
+  }
+  // Lista de días con registro (detalle)
+  const detail = days.filter(d => dayEntries(d).length).reverse().map(d => {
+    const g = goalFor(d); const wd = parse(d).toLocaleDateString("es-CL",{weekday:"short", day:"numeric", month:"short"});
+    return `<li><div class="grow stack" style="gap:4px"><div class="name">${esc(wd)}</div>${statusPill(d)}</div><div style="text-align:right"><div class="kc num">${n0(dayTotal(d))} kcal</div><div class="small muted num">meta ${g ? n0(g.kcal) : "—"}</div></div></li>`;
+  }).join("");
+  view.innerHTML = `
+    <div class="seg" role="group" aria-label="Periodo">
+      <button data-sm="semana" aria-pressed="${isWeek}">Semana</button><button data-sm="mes" aria-pressed="${!isWeek}">Mes</button>
+    </div>
+    <div class="datebar">
+      <button class="iconbtn" id="prevR" aria-label="Periodo anterior">${ICON.left}</button>
+      <div class="label">${esc(title)}</div>
+      <button class="iconbtn" id="nextR" aria-label="Periodo siguiente" ${canNext ? "" : "disabled"}>${ICON.right}</button>
+    </div>
+    <section class="statgrid">
+      <div class="tile"><div class="v num">${r.met}<span class="muted" style="font-size:15px">/${evald}</span></div><div class="k">Días cumplidos</div></div>
+      <div class="tile"><div class="v num">${r.avg === null ? "—" : n0(r.avg)}</div><div class="k">Promedio kcal/día</div></div>
+      <div class="tile"><div class="v num">${evald ? Math.round(100*r.met/evald) + "%" : "—"}</div><div class="k">Cumplimiento</div></div>
+    </section>
+    ${body}
+    <section class="card"><h3 style="font-size:16px">Detalle</h3>${detail ? `<ul class="list">${detail}</ul>` : `<p class="empty">No hay registros en este periodo.</p>`}</section>
+    <p class="hint" style="margin:0">El día de hoy no se cuenta en el cumplimiento hasta que termine. El promedio considera solo días cerrados con registro.</p>`;
+  view.querySelectorAll("[data-sm]").forEach(b => b.onclick = () => { UI.sumMode = b.dataset.sm; render(); });
+  $("#prevR").onclick = () => { UI.sumAnchor = isWeek ? addDays(weekStart(a),-7) : iso(new Date(parse(a).getFullYear(), parse(a).getMonth()-1, 1)); render(); };
+  $("#nextR").onclick = () => { if(!canNext) return; UI.sumAnchor = isWeek ? addDays(weekStart(a),7) : iso(new Date(parse(a).getFullYear(), parse(a).getMonth()+1, 1)); render(); };
+  view.querySelectorAll("[data-go]").forEach(b => b.onclick = () => { UI.day = b.dataset.go; go("hoy"); });
+}
+
+/* ---------- Vista: Ajustes ---------- */
+function renderAjustes(){
+  const g = goalFor(todayISO());
+  view.innerHTML = `
+    <h2 style="font-size:24px">Ajustes</h2>
+    <section class="card stack">
+      <div class="row between"><div><div class="muted small">Meta diaria</div><div style="font-weight:800;font-size:22px" class="num">${g ? n0(g.kcal) + " kcal" : "Sin definir"}</div>
+      ${g ? `<div class="small muted">${g.mode==="max" ? "No pasarme" : "Llegar al mínimo"} · tolerancia ${g.tol}%</div>` : ""}</div>
+      <button class="btn" id="chG">${g ? "Cambiar" : "Definir"}</button></div>
+    </section>
+    <section class="card stack">
+      <h3 style="font-size:16px">Instalar en el teléfono</h3>
+      ${installEvt ? `<button class="btn block" id="inst">Instalar DailyFuel</button>` :
+        `<p class="hint" style="margin:0">En Chrome para Android abre el menú ⋮ y elige <b>Instalar app</b> o <b>Agregar a la pantalla principal</b>. Si ya la instalaste, ignora esto.</p>`}
+    </section>
+    <section class="card stack">
+      <h3 style="font-size:16px">Respaldo de datos</h3>
+      <p class="hint" style="margin:0">Tus datos viven solo en este teléfono. Descarga un respaldo de vez en cuando por si cambias de equipo o borras el navegador.</p>
+      <div class="grid2"><button class="btn ghost" id="exp">Descargar respaldo</button><button class="btn ghost" id="copy">Copiar respaldo</button></div>
+      <label class="btn ghost" for="imp" style="text-align:center">Restaurar desde archivo</label>
+      <input id="imp" type="file" accept="application/json,.json" hidden>
+      <p class="small muted num" style="margin:0">${S.entries.length} registros · ${S.products.length} productos</p>
+    </section>
+    <section class="card stack">
+      <h3 style="font-size:16px">Zona de cuidado</h3>
+      <button class="btn danger" id="wipe">Borrar todos los datos</button>
+    </section>
+    <p class="hint" style="text-align:center;margin:0">DailyFuel · fase 1</p>`;
+  $("#chG").onclick = () => goalSheet(!g);
+  if(installEvt) $("#inst").onclick = async () => { installEvt.prompt(); try{ await installEvt.userChoice; }catch(e){} installEvt = null; render(); };
+  const json = () => JSON.stringify(S, null, 1);
+  $("#exp").onclick = () => {
+    try{
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([json()], {type:"application/json"}));
+      a.download = `dailyfuel-respaldo-${todayISO()}.json`; document.body.appendChild(a); a.click(); a.remove();
+      toast("Respaldo descargado");
+    }catch(e){ toast("No se pudo descargar. Usa Copiar respaldo."); }
+  };
+  $("#copy").onclick = async () => {
+    try{ await navigator.clipboard.writeText(json()); toast("Respaldo copiado"); }
+    catch(e){ toast("No se pudo copiar en este navegador"); }
+  };
+  $("#imp").onchange = e => {
+    const f = e.target.files[0]; if(!f) return;
+    f.text().then(txt => {
+      let d; try{ d = JSON.parse(txt); }catch(err){ toast("El archivo no es un respaldo válido"); return; }
+      if(!d || !Array.isArray(d.entries) || !Array.isArray(d.products) || !Array.isArray(d.goals)){ toast("El archivo no es un respaldo de DailyFuel"); return; }
+      confirmSheet("Restaurar respaldo", `Se reemplazarán tus datos actuales por ${d.entries.length} registros y ${d.products.length} productos.`, "Restaurar", () => {
+        S = d; save(); render(); toast("Respaldo restaurado");
+      }, false);
+    });
+    e.target.value = "";
+  };
+  $("#wipe").onclick = () => confirmSheet("Borrar todo", "Se eliminarán tu meta, registros y productos de este teléfono. No se puede deshacer.", "Borrar todo", () => {
+    S = blank(); save(); UI.day = todayISO(); go("hoy"); goalSheet(true);
+  });
+}
+
+/* ---------- Navegación ---------- */
+function render(){
+  const g = goalFor(todayISO());
+  $("#hdrGoal").textContent = g ? `Meta ${n0(g.kcal)} kcal` : "";
+  document.querySelectorAll("nav.tabs [data-view]").forEach(b => b.setAttribute("aria-current", b.dataset.view === UI.view ? "page" : "false"));
+  $("#fab").hidden = UI.view !== "hoy";
+  ({hoy:renderHoy, productos:renderProductos, resumen:renderResumen, ajustes:renderAjustes})[UI.view]();
+}
+function go(v){ UI.view = v; window.scrollTo(0,0); render(); }
+document.querySelectorAll("nav.tabs [data-view]").forEach(b => b.onclick = () => go(b.dataset.view));
+$("#fab").onclick = () => { if(!goalFor(todayISO())){ goalSheet(true); return; } addSheet(); };
+// Si el día cambia con la app abierta, avanzar a "hoy"
+let lastToday = todayISO();
+document.addEventListener("visibilitychange", () => {
+  if(document.visibilityState === "visible" && todayISO() !== lastToday){ if(UI.day === lastToday) UI.day = todayISO(); lastToday = todayISO(); render(); }
+});
+
+render();
+if(!S.goals.length) goalSheet(true);
+
+/* ---------- Modo offline (solo cuando está publicada en su propio sitio) ---------- */
+try{
+  if("serviceWorker" in navigator && location.protocol === "https:" && !location.hostname.endsWith("claude.ai") && !location.hostname.endsWith("claudeusercontent.com")){
+    navigator.serviceWorker.register("sw.js").catch(()=>{});
+  }
+}catch(e){}
+</script>
+</body>
+</html>
