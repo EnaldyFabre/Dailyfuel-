@@ -36,6 +36,7 @@
   color-scheme: dark;
 }
 *{box-sizing:border-box}
+[hidden]{display:none !important}
 html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.45;-webkit-tap-highlight-color:transparent}
 button,input,select{font:inherit;color:inherit}
@@ -104,6 +105,13 @@ input[type=text],input[type=number],input[type=search],select{width:100%;padding
 .chips{display:flex;flex-wrap:wrap;gap:8px}
 .chip{border:1px solid var(--line);background:var(--bg);border-radius:999px;padding:7px 12px;font-size:14px;font-weight:600}
 .chip[aria-pressed="true"]{border-color:var(--accent);background:var(--soft);color:var(--ink)}
+textarea{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--bg);font-size:16px;resize:vertical;font:inherit}
+.preview{display:block;width:100%;max-height:220px;object-fit:cover;border-radius:14px;border:1px solid var(--line)}
+.irow{border:1px solid var(--line);border-radius:14px;padding:10px;display:flex;flex-direction:column;gap:8px;background:var(--bg)}
+.irow input,.irow select{padding:9px 10px;background:var(--surface)}
+.irow-q{display:grid;grid-template-columns:1fr 92px 1fr auto;gap:8px;align-items:center}
+.tag{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.03em;padding:2px 7px;border-radius:6px;background:var(--soft);color:var(--accent);vertical-align:1px}
+.btn:disabled{opacity:.6;cursor:progress}
 .calc{background:var(--soft);border-radius:12px;padding:12px 14px;font-weight:700;display:flex;justify-content:space-between}
 /* sheet */
 .scrim{position:fixed;inset:0;background:rgba(5,10,15,.5);display:flex;align-items:flex-end;justify-content:center;z-index:20}
@@ -168,13 +176,14 @@ const MEAL_NAME = Object.fromEntries(MEALS);
 const BASIS = {g:"por 100 g", ml:"por 100 ml", porcion:"por porción"};
 let storageOK = true;
 
-function blank(){ return {v:1, goals:[], entries:[], products:[]}; }
+function blank(){ return {v:1, goals:[], entries:[], products:[], dishes:[]}; }
 function load(){
   try{ const s = localStorage.getItem(KEY); if(s){ const d = JSON.parse(s); if(d && Array.isArray(d.entries)) return d; } }
   catch(e){ storageOK = false; }
   return null;
 }
 let S = load() || blank();
+if(!Array.isArray(S.dishes)) S.dishes = [];
 function save(){
   try{ localStorage.setItem(KEY, JSON.stringify(S)); storageOK = true; }
   catch(e){ storageOK = false; }
@@ -328,19 +337,148 @@ function recentNames(){
 function productKcal(p, qty){ return p.basis === "porcion" ? p.kcal*qty : p.kcal*qty/100; }
 function qtyUnit(p){ return p.basis === "g" ? "g" : p.basis === "ml" ? "ml" : (p.portion || "porción"); }
 
+/* ---------- IA (Gemini) ---------- */
+// La clave vive solo en este teléfono (localStorage) y NO va en los respaldos ni en el código.
+const AIKEY = "dailyfuel.gemini", AIMODEL = "dailyfuel.gemini.model", DEFAULT_MODEL = "gemini-flash-latest";
+const API = "https://generativelanguage.googleapis.com/v1beta";
+const getKey = () => { try{ return localStorage.getItem(AIKEY) || ""; }catch(e){ return ""; } };
+const setKey = k => { try{ k ? localStorage.setItem(AIKEY, k) : localStorage.removeItem(AIKEY); }catch(e){} };
+const getModel = () => { try{ return localStorage.getItem(AIMODEL) || DEFAULT_MODEL; }catch(e){ return DEFAULT_MODEL; } };
+const setModel = m => { try{ localStorage.setItem(AIMODEL, m); }catch(e){} };
+class AIError extends Error{}
+
+async function aiHttpError(r){
+  let msg = ""; try{ const j = await r.json(); msg = (j.error && j.error.message) || ""; }catch(e){}
+  if(r.status === 429) return new AIError("Llegaste al límite gratuito por ahora. Espera un minuto y vuelve a intentar.");
+  if(r.status === 400 && /api key/i.test(msg)) return new AIError("La clave de Gemini no es válida. Revísala en Ajustes.");
+  if(r.status === 403) return new AIError("Google rechazó la clave. Revísala en Ajustes.");
+  return new AIError(`Gemini respondió con un error (${r.status}). ${msg.slice(0,140)}`);
+}
+// Si el modelo por defecto no existe para la clave, elige el mejor "Flash" disponible.
+async function pickModel(key){
+  const r = await fetch(`${API}/models?pageSize=200&key=${encodeURIComponent(key)}`);
+  if(!r.ok) throw await aiHttpError(r);
+  const j = await r.json();
+  const list = (j.models || []).map(m => ({id: m.name.replace(/^models\//,""), m}))
+    .filter(x => (x.m.supportedGenerationMethods || []).includes("generateContent") && /flash/i.test(x.id)
+      && !/(image|tts|audio|live|embed|robotics|computer)/i.test(x.id));
+  const penalty = id => (/lite/i.test(id) ? 2 : 0) + (/preview|exp/i.test(id) ? 1 : 0);
+  list.sort((a,b) => penalty(a.id) - penalty(b.id) || b.id.localeCompare(a.id, undefined, {numeric:true}));
+  return list.length ? list[0].id : null;
+}
+async function geminiJSON(parts, sys){
+  const key = getKey();
+  if(!key) throw new AIError("Primero agrega tu clave de Gemini en Ajustes.");
+  const body = JSON.stringify({ systemInstruction:{parts:[{text:sys}]}, contents:[{role:"user", parts}],
+    generationConfig:{ responseMimeType:"application/json", temperature:0.2 } });
+  const call = m => fetch(`${API}/models/${m}:generateContent?key=${encodeURIComponent(key)}`,
+    {method:"POST", headers:{"Content-Type":"application/json"}, body});
+  let r;
+  try{ r = await call(getModel()); }catch(e){ throw new AIError("Sin conexión. La IA necesita internet."); }
+  if(r.status === 404){
+    const m = await pickModel(key);
+    if(!m) throw new AIError("No encontré un modelo Gemini disponible para tu clave.");
+    setModel(m); r = await call(m);
+  }
+  if(!r.ok) throw await aiHttpError(r);
+  const j = await r.json();
+  const parts0 = (((j.candidates || [])[0] || {}).content || {}).parts || [];
+  const txt = parts0.map(p => p.text || "").join("").trim();
+  if(!txt) throw new AIError("Gemini no devolvió respuesta. Prueba con otra foto o agrega una descripción.");
+  try{ return JSON.parse(txt.replace(/^```(?:json)?\s*/,"").replace(/\s*```$/,"")); }
+  catch(e){ throw new AIError("No pude leer la respuesta de Gemini. Intenta de nuevo."); }
+}
+
+const SYS_FOOD = `Eres un nutricionista que estima calorías de comidas para una persona que vive en Chile.
+Recibirás una foto de comida y/o una descripción del usuario, y a veces productos del usuario con sus calorías exactas.
+Reglas:
+- Separa la comida en sus ingredientes principales (máximo 10).
+- Incluye aceite, mantequilla, azúcar, salsas o aderezos probables aunque no se vean, y menciónalo en la nota.
+- Lo que el usuario diga (marca, tipo, cantidad) manda por sobre lo que ves en la foto.
+- Si un ingrediente corresponde a un producto del usuario, pon su id en "producto_id" y calcula sus kcal con LOS VALORES DEL USUARIO.
+- Si no hay referencia de tamaño, usa porciones típicas chilenas.
+- Usa nombres en español de Chile (palta, marraqueta, porotos, quesillo).
+- Si la imagen no es comida, devuelve "items" vacío y explícalo en la nota.
+Responde SOLO con JSON con esta forma exacta:
+{"plato": string, "items": [{"nombre": string, "cantidad": number, "unidad": "g" | "ml" | "unidad", "kcal": number, "producto_id": string | null}], "confianza": "alta" | "media" | "baja", "nota": string}
+La nota: máximo 2 frases, en español, diciendo qué supusiste.`;
+
+function resizeImage(file, max = 1024){
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      const s = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.width*s); c.height = Math.round(img.height*s);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      res(c.toDataURL("image/jpeg", 0.8));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new AIError("No pude abrir esa imagen.")); };
+    img.src = url;
+  });
+}
+async function analyzeFood({image, text, productIds}){
+  const parts = [];
+  if(image) parts.push({inline_data:{mime_type:"image/jpeg", data: image.split(",")[1]}});
+  const prods = S.products.filter(p => productIds.includes(p.id));
+  let t = text ? `Descripción del usuario: ${text}` : "El usuario no agregó descripción.";
+  if(prods.length) t += "\nProductos del usuario que están en esta comida:\n" + prods.map(p =>
+    `- id ${p.id}: ${p.name}, ${p.kcal} kcal ${p.basis === "porcion" ? "por " + (p.portion || "porción") : p.basis === "ml" ? "por 100 ml" : "por 100 g"}`).join("\n");
+  if(!image) t += "\nNo hay foto: estima solo con la descripción.";
+  parts.push({text: t});
+  const out = await geminiJSON(parts, SYS_FOOD);
+  const items = (Array.isArray(out.items) ? out.items : []).map(i => {
+    const it = { nombre: String(i.nombre || "Ingrediente").slice(0,50), cantidad: Math.max(0, +i.cantidad || 0),
+      unidad: ["g","ml","unidad"].includes(i.unidad) ? i.unidad : "g", kcal: Math.max(0, Math.round(+i.kcal || 0)), producto_id: i.producto_id || null };
+    // Para productos del usuario recalculamos con sus valores exactos
+    const p = prods.find(x => x.id === it.producto_id);
+    if(p && it.cantidad > 0){
+      if(p.basis === "porcion" && it.unidad === "unidad") it.kcal = Math.round(p.kcal * it.cantidad);
+      else if(p.basis !== "porcion" && it.unidad !== "unidad") it.kcal = Math.round(p.kcal * it.cantidad / 100);
+    }
+    return it;
+  });
+  return { plato: String(out.plato || "Comida").slice(0,60), items, confianza: out.confianza || "media", nota: String(out.nota || "") };
+}
+
+/* ---------- Agregar comida ---------- */
 function addSheet(){
   const date = UI.day;
   const recents = recentNames();
+  const hasKey = !!getKey();
   const mealChips = MEALS.map(([k,v]) => `<button type="button" class="chip" data-meal="${k}" aria-pressed="${k===defaultMeal()}">${v}</button>`).join("");
+  const catalog = [...S.products.map(p => ({...p, isDish:false})),
+    ...S.dishes.map(d => ({id:d.id, name:d.name, basis:"porcion", kcal:d.kcal, portion:"porción", isDish:true, items:d.items}))];
   openSheet(`
     <h2>Agregar comida</h2>
     <p class="hint" style="margin:0">Se registra en: ${esc(fmtLong(date))}</p>
     <div class="chips" role="group" aria-label="Comida del día">${mealChips}</div>
     <div class="seg" role="group" aria-label="Forma de registro">
-      <button type="button" data-tab="kcal" aria-pressed="true">Kcal directas</button>
+      <button type="button" data-tab="ai" aria-pressed="${hasKey}">Con IA</button>
+      <button type="button" data-tab="kcal" aria-pressed="${!hasKey}">Kcal</button>
       <button type="button" data-tab="prod" aria-pressed="false">Mis productos</button>
     </div>
-    <form class="stack" id="fK">
+
+    <div class="stack" id="fA" ${hasKey ? "" : "hidden"}>
+      ${hasKey ? `
+      <div class="grid2">
+        <label class="btn ghost" for="camIn" style="text-align:center">Tomar foto</label>
+        <label class="btn ghost" for="galIn" style="text-align:center">Elegir de galería</label>
+      </div>
+      <input id="camIn" type="file" accept="image/*" capture="environment" hidden>
+      <input id="galIn" type="file" accept="image/*" hidden>
+      <div id="aPrev" hidden><img id="aImg" alt="Foto de la comida" class="preview"><button type="button" class="chip" id="aClr" style="margin-top:6px">Quitar foto</button></div>
+      <label class="f" for="aTxt">Detalles (opcional, mejora mucho la precisión)
+        <textarea id="aTxt" rows="3" maxlength="400" placeholder="Ej: plato de cereal Chocapic con leche Colún semidescremada, 1 taza de leche"></textarea></label>
+      ${S.products.length ? `<div class="stack" style="gap:6px"><span class="hint">¿Usaste alguno de tus productos? Márcalo y la IA usará sus calorías exactas.</span>
+        <div class="chips" id="aProds">${S.products.map(p => `<button type="button" class="chip" data-ap="${p.id}" aria-pressed="false">${esc(p.name)}</button>`).join("")}</div></div>` : ""}
+      <button class="btn block" id="aGo" type="button">Analizar</button>
+      <div id="aRes" class="stack" hidden></div>
+      ` : `<p class="empty">Para usar la IA, agrega tu clave de Gemini en <b>Ajustes</b>.</p><button class="btn ghost" type="button" id="toAj">Ir a Ajustes</button>`}
+    </div>
+
+    <form class="stack" id="fK" ${hasKey ? "hidden" : ""}>
       <label class="f" for="kName">Qué comiste
         <input id="kName" type="text" maxlength="60" placeholder="Ej: Marraqueta con palta" autocomplete="off"></label>
       <label class="f" for="kVal">Calorías (kcal)
@@ -348,16 +486,17 @@ function addSheet(){
       ${recents.length ? `<div class="stack" style="gap:6px"><span class="hint">Repetir algo reciente</span><div class="chips">${recents.map((r,i)=>`<button type="button" class="chip" data-rec="${i}">${esc(r.name)} · ${n0(r.kcal)}</button>`).join("")}</div></div>` : ""}
       <button class="btn block" type="submit">Agregar</button>
     </form>
+
     <form class="stack" id="fP" hidden>
-      ${S.products.length ? `
-      <input id="pSearch" type="search" placeholder="Buscar producto" aria-label="Buscar producto" autocomplete="off">
+      ${catalog.length ? `
+      <input id="pSearch" type="search" placeholder="Buscar producto o plato" aria-label="Buscar producto o plato" autocomplete="off">
       <div class="plist" id="pList"></div>
       <div id="pQty" class="stack" hidden>
         <label class="f" for="pQ"><span id="pQLabel">Cantidad</span>
           <input id="pQ" type="number" inputmode="decimal" min="0.1" step="any" required></label>
         <div class="calc"><span>Total</span><span class="num" id="pCalc">0 kcal</span></div>
         <button class="btn block" type="submit">Agregar</button>
-      </div>` : `<p class="empty">Aún no tienes productos guardados. Agrégalos en la pestaña Productos y luego podrás sumarlos aquí por gramos o porciones.</p>`}
+      </div>` : `<p class="empty">Aún no tienes productos ni platos guardados. Agrega productos en la pestaña Productos, o guarda un plato después de analizarlo con IA.</p>`}
     </form>`,
   (el, close) => {
     let meal = defaultMeal(), sel = null;
@@ -366,9 +505,12 @@ function addSheet(){
     });
     el.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => {
       el.querySelectorAll("[data-tab]").forEach(x => x.setAttribute("aria-pressed", x===b));
+      el.querySelector("#fA").hidden = b.dataset.tab !== "ai";
       el.querySelector("#fK").hidden = b.dataset.tab !== "kcal";
       el.querySelector("#fP").hidden = b.dataset.tab !== "prod";
     });
+
+    /* --- Kcal directas --- */
     el.querySelectorAll("[data-rec]").forEach(b => b.onclick = () => {
       const r = recents[+b.dataset.rec];
       el.querySelector("#kName").value = r.name; el.querySelector("#kVal").value = r.kcal;
@@ -381,18 +523,100 @@ function addSheet(){
       S.entries.push({id:uid(), date, time:nowHM(), meal, name, kcal});
       save(); close(); render(); toast(`+${n0(kcal)} kcal`);
     };
-    if(!S.products.length) return;
+
+    /* --- Con IA --- */
+    const toAj = el.querySelector("#toAj");
+    if(toAj) toAj.onclick = () => { close(); go("ajustes"); };
+    if(hasKey){
+      let image = null, rows = [];
+      const picked = new Set();
+      const onFile = async ev => {
+        const f = ev.target.files[0]; ev.target.value = ""; if(!f) return;
+        try{ image = await resizeImage(f); el.querySelector("#aImg").src = image; el.querySelector("#aPrev").hidden = false; }
+        catch(e){ toast(e.message); }
+      };
+      el.querySelector("#camIn").onchange = onFile; el.querySelector("#galIn").onchange = onFile;
+      el.querySelector("#aClr").onclick = () => { image = null; el.querySelector("#aPrev").hidden = true; };
+      el.querySelectorAll("[data-ap]").forEach(b => b.onclick = () => {
+        const id = b.dataset.ap; picked.has(id) ? picked.delete(id) : picked.add(id); b.setAttribute("aria-pressed", picked.has(id));
+      });
+      const res = el.querySelector("#aRes");
+      const total = () => rows.reduce((a,r)=>a + (+r.kcal || 0), 0);
+      const drawRows = (plato, conf, nota) => {
+        res.hidden = false;
+        res.innerHTML = `
+          <div class="row between"><h3 style="font-size:17px">Resultado</h3><span class="pill ${conf==="alta"?"good":conf==="baja"?"bad":"prog"}">Confianza ${esc(conf)}</span></div>
+          ${nota ? `<p class="hint" style="margin:0">${esc(nota)}</p>` : ""}
+          <label class="f" for="rName">Nombre del registro<input id="rName" type="text" maxlength="60" value="${esc(plato)}"></label>
+          <div class="stack" id="rRows" style="gap:8px"></div>
+          <button type="button" class="chip" id="rAdd">+ Agregar ingrediente</button>
+          <div class="calc"><span>Total</span><span class="num" id="rTot"></span></div>
+          <label class="row small" for="rDish" style="font-weight:600"><input id="rDish" type="checkbox"> Guardar también como plato (para repetirlo sin IA)</label>
+          <button class="btn block" type="button" id="rSave">Guardar registro</button>
+          <p class="hint" style="margin:0">Es una estimación. Revisa sobre todo las cantidades: ahí está el mayor error.</p>`;
+        const box = res.querySelector("#rRows");
+        const draw = () => {
+          box.innerHTML = rows.length ? rows.map((r,i) => `
+            <div class="irow">
+              <div class="row"><input type="text" data-n="${i}" value="${esc(r.nombre)}" aria-label="Ingrediente" maxlength="50">
+                <button type="button" class="del" data-rm="${i}" aria-label="Quitar ${esc(r.nombre)}">${ICON.trash}</button></div>
+              <div class="irow-q">
+                <input type="number" inputmode="decimal" step="any" min="0" data-q="${i}" value="${r.cantidad}" aria-label="Cantidad">
+                <select data-u="${i}" aria-label="Unidad">${["g","ml","unidad"].map(u=>`<option ${u===r.unidad?"selected":""}>${u}</option>`).join("")}</select>
+                <input type="number" inputmode="numeric" step="1" min="0" data-k="${i}" value="${r.kcal}" aria-label="Kcal">
+                <span class="small muted">kcal</span>
+              </div></div>`).join("") : `<p class="empty">Sin ingredientes. Agrega uno o escribe una descripción y vuelve a analizar.</p>`;
+          res.querySelector("#rTot").textContent = `${n0(total())} kcal`;
+          box.querySelectorAll("[data-n]").forEach(x => x.oninput = () => { rows[+x.dataset.n].nombre = x.value; });
+          box.querySelectorAll("[data-u]").forEach(x => x.onchange = () => { rows[+x.dataset.u].unidad = x.value; });
+          box.querySelectorAll("[data-k]").forEach(x => x.oninput = () => { rows[+x.dataset.k].kcal = Math.max(0, Math.round(+x.value || 0)); res.querySelector("#rTot").textContent = `${n0(total())} kcal`; });
+          box.querySelectorAll("[data-q]").forEach(x => x.oninput = () => {
+            // Al cambiar la cantidad, las kcal se ajustan en proporción
+            const r = rows[+x.dataset.q], nq = Math.max(0, +x.value || 0);
+            if(r.cantidad > 0 && r.kcal > 0){ r.kcal = Math.round(r.kcal * nq / r.cantidad); box.querySelector(`[data-k="${x.dataset.q}"]`).value = r.kcal; }
+            r.cantidad = nq; res.querySelector("#rTot").textContent = `${n0(total())} kcal`;
+          });
+          box.querySelectorAll("[data-rm]").forEach(x => x.onclick = () => { rows.splice(+x.dataset.rm, 1); draw(); });
+        };
+        draw();
+        res.querySelector("#rAdd").onclick = () => { rows.push({nombre:"", cantidad:0, unidad:"g", kcal:0, producto_id:null}); draw(); box.querySelector(`[data-n="${rows.length-1}"]`).focus(); };
+        res.querySelector("#rSave").onclick = () => {
+          const kcal = Math.round(total());
+          if(!kcal){ toast("El total está en 0 kcal"); return; }
+          const name = res.querySelector("#rName").value.trim() || "Comida";
+          const items = rows.filter(r => r.nombre.trim() || r.kcal).map(r => ({nombre:r.nombre.trim() || "Ingrediente", cantidad:r.cantidad, unidad:r.unidad, kcal:Math.round(r.kcal)}));
+          S.entries.push({id:uid(), date, time:nowHM(), meal, name, kcal, items, ai:true});
+          if(res.querySelector("#rDish").checked) S.dishes.push({id:uid(), name, kcal, items});
+          save(); close(); render(); toast(`+${n0(kcal)} kcal`);
+        };
+      };
+      el.querySelector("#aGo").onclick = async () => {
+        const text = el.querySelector("#aTxt").value.trim();
+        if(!image && !text){ toast("Agrega una foto o escribe qué comiste"); return; }
+        const btn = el.querySelector("#aGo"); btn.disabled = true; btn.textContent = "Analizando…";
+        try{
+          const r = await analyzeFood({image, text, productIds:[...picked]});
+          rows = r.items; drawRows(r.plato, r.confianza, r.nota);
+          res.scrollIntoView({behavior:"smooth", block:"start"});
+        }catch(e){ toast(e instanceof AIError ? e.message : "Algo falló al analizar. Intenta de nuevo."); }
+        finally{ btn.disabled = false; btn.textContent = "Analizar de nuevo"; }
+      };
+    }
+
+    /* --- Mis productos y platos --- */
+    if(!catalog.length) return;
     const list = el.querySelector("#pList"), q = el.querySelector("#pQ");
+    const unitOf = p => p.isDish ? "porciones" : qtyUnit(p);
     const calc = () => { if(!sel) return; el.querySelector("#pCalc").textContent = `${n0(productKcal(sel, +q.value || 0))} kcal`; };
     const draw = () => {
       const term = el.querySelector("#pSearch").value.trim().toLowerCase();
-      const items = S.products.filter(p => p.name.toLowerCase().includes(term)).sort((a,b)=>a.name.localeCompare(b.name,"es"));
-      list.innerHTML = items.length ? items.map(p => `<button type="button" data-p="${p.id}" aria-pressed="${sel && sel.id===p.id}"><span>${esc(p.name)}</span><span class="muted small num">${n0(p.kcal)} kcal ${BASIS[p.basis]}</span></button>`).join("")
+      const items = catalog.filter(p => p.name.toLowerCase().includes(term)).sort((a,b)=>a.name.localeCompare(b.name,"es"));
+      list.innerHTML = items.length ? items.map(p => `<button type="button" data-p="${p.id}" aria-pressed="${!!sel && sel.id===p.id}"><span>${p.isDish ? '<span class="tag">Plato</span> ' : ""}${esc(p.name)}</span><span class="muted small num">${n0(p.kcal)} kcal ${p.isDish ? "por porción" : BASIS[p.basis]}</span></button>`).join("")
         : `<p class="empty">Sin resultados</p>`;
       list.querySelectorAll("[data-p]").forEach(b => b.onclick = () => {
-        sel = S.products.find(p => p.id === b.dataset.p);
+        sel = catalog.find(p => p.id === b.dataset.p);
         el.querySelector("#pQty").hidden = false;
-        el.querySelector("#pQLabel").textContent = `Cantidad (${qtyUnit(sel)})`;
+        el.querySelector("#pQLabel").textContent = `Cantidad (${unitOf(sel)})`;
         q.value = sel.basis === "porcion" ? 1 : 100;
         draw(); calc(); q.focus(); q.select();
       });
@@ -400,12 +624,19 @@ function addSheet(){
     el.querySelector("#pSearch").oninput = draw; q.oninput = calc; draw();
     el.querySelector("#fP").onsubmit = e => {
       e.preventDefault();
-      if(!sel){ toast("Elige un producto"); return; }
+      if(!sel){ toast("Elige un producto o plato"); return; }
       const qty = +q.value; if(!qty || qty <= 0){ toast("Ingresa la cantidad"); return; }
       const kcal = Math.round(productKcal(sel, qty));
-      const name = `${sel.name} · ${qty.toLocaleString("es-CL")} ${qtyUnit(sel)}`;
-      S.entries.push({id:uid(), date, time:nowHM(), meal, name, kcal, productId:sel.id, qty});
-      save(); close(); render(); toast(`+${n0(kcal)} kcal`);
+      const entry = {id:uid(), date, time:nowHM(), meal, kcal};
+      if(sel.isDish){
+        entry.name = qty === 1 ? sel.name : `${sel.name} · ${qty.toLocaleString("es-CL")} porciones`;
+        entry.items = (sel.items || []).map(i => ({...i, cantidad: Math.round(i.cantidad*qty*10)/10, kcal: Math.round(i.kcal*qty)}));
+        entry.dishId = sel.id;
+      } else {
+        entry.name = `${sel.name} · ${qty.toLocaleString("es-CL")} ${qtyUnit(sel)}`;
+        entry.productId = sel.id; entry.qty = qty;
+      }
+      S.entries.push(entry); save(); close(); render(); toast(`+${n0(kcal)} kcal`);
     };
   });
 }
@@ -462,7 +693,7 @@ function renderHoy(){
       const items = entries.filter(e => e.meal === k).sort((a,b)=>a.time.localeCompare(b.time));
       if(!items.length) continue;
       html += `<section class="card meal"><h3>${name}<span class="num">${n0(items.reduce((a,e)=>a+e.kcal,0))} kcal</span></h3>
-        <ul class="list">${items.map(e => `<li><div class="grow"><div class="name">${esc(e.name)}</div><div class="small muted num">${esc(e.time)}</div></div>
+        <ul class="list">${items.map(e => `<li><div class="grow"><div class="name">${e.ai ? '<span class="tag">IA</span> ' : ""}${esc(e.name)}</div>${e.items && e.items.length ? `<div class="small muted">${esc(e.items.map(i => `${i.nombre} ${i.cantidad ? n0(i.cantidad) + " " + i.unidad : ""}`.trim()).join(" · "))}</div>` : ""}<div class="small muted num">${esc(e.time)}</div></div>
         <div class="kc num">${n0(e.kcal)}</div><button class="del" data-del="${e.id}" aria-label="Eliminar ${esc(e.name)}">${ICON.trash}</button></li>`).join("")}</ul></section>`;
     }
   }
@@ -520,9 +751,22 @@ function renderProductos(){
       <div class="grow"><div class="name">${esc(p.name)}</div><div class="small muted num">${n0(p.kcal)} kcal ${p.basis==="porcion" && p.portion ? "por " + esc(p.portion) : BASIS[p.basis]}</div></div>
       <button class="del" data-edit="${p.id}" aria-label="Editar ${esc(p.name)}">${ICON.edit}</button>
       <button class="del" data-delp="${p.id}" aria-label="Eliminar ${esc(p.name)}">${ICON.trash}</button></li>`).join("")}</ul>`
-      : `<p class="empty">Aún no tienes productos. Agrega el primero con el botón <b>Nuevo</b>.</p>`}</section>`;
+      : `<p class="empty">Aún no tienes productos. Agrega el primero con el botón <b>Nuevo</b>.</p>`}</section>
+    <h2 style="font-size:20px">Mis platos</h2>
+    <p class="hint" style="margin:0">Se crean al analizar una comida con IA y marcar "Guardar también como plato". Después los agregas con un toque, sin IA.</p>
+    <section class="card">${S.dishes.length ? `<ul class="list">${[...S.dishes].sort((a,b)=>a.name.localeCompare(b.name,"es")).map(d => `<li>
+      <div class="grow"><div class="name">${esc(d.name)}</div><div class="small muted">${esc((d.items||[]).map(i=>i.nombre).join(" · "))}</div></div>
+      <div class="kc num">${n0(d.kcal)}</div>
+      <button class="del" data-deld="${d.id}" aria-label="Eliminar ${esc(d.name)}">${ICON.trash}</button></li>`).join("")}</ul>`
+      : `<p class="empty">Aún no tienes platos guardados.</p>`}</section>`;
   $("#newP").onclick = () => productSheet();
   view.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => productSheet(S.products.find(p => p.id === b.dataset.edit)));
+  view.querySelectorAll("[data-deld]").forEach(b => b.onclick = () => {
+    const d = S.dishes.find(x => x.id === b.dataset.deld);
+    confirmSheet("Eliminar plato", `${d.name}. Los registros que ya hiciste con él se mantienen.`, "Eliminar", () => {
+      S.dishes = S.dishes.filter(x => x.id !== d.id); save(); render();
+    });
+  });
   view.querySelectorAll("[data-delp]").forEach(b => b.onclick = () => {
     const p = S.products.find(x => x.id === b.dataset.delp);
     confirmSheet("Eliminar producto", `${p.name}. Los registros que ya hiciste con él se mantienen.`, "Eliminar", () => {
@@ -631,6 +875,14 @@ function renderAjustes(){
       <button class="btn" id="chG">${g ? "Cambiar" : "Definir"}</button></div>
     </section>
     <section class="card stack">
+      <h3 style="font-size:16px">Inteligencia artificial (Gemini)</h3>
+      <p class="hint" style="margin:0">La clave se guarda solo en este teléfono y no se incluye en los respaldos. En el plan gratis, Google puede usar las fotos y textos que envías para mejorar sus productos.</p>
+      <label class="f" for="aiKey">Clave de API de Gemini
+        <input id="aiKey" type="password" autocomplete="off" spellcheck="false" placeholder="${getKey() ? "•••••••• guardada" : "Pega aquí tu clave AIza…"}"></label>
+      <div class="grid2"><button class="btn" id="aiSave">Guardar y probar</button><button class="btn ghost" id="aiDel" ${getKey() ? "" : "disabled"}>Quitar clave</button></div>
+      <p class="small muted" id="aiStatus" style="margin:0">${getKey() ? "Clave guardada · modelo: " + esc(getModel()) : "Sin clave: la pestaña Con IA está desactivada."}</p>
+    </section>
+    <section class="card stack">
       <h3 style="font-size:16px">Instalar en el teléfono</h3>
       ${installEvt ? `<button class="btn block" id="inst">Instalar DailyFuel</button>` :
         `<p class="hint" style="margin:0">En Chrome para Android abre el menú ⋮ y elige <b>Instalar app</b> o <b>Agregar a la pantalla principal</b>. Si ya la instalaste, ignora esto.</p>`}
@@ -647,8 +899,23 @@ function renderAjustes(){
       <h3 style="font-size:16px">Zona de cuidado</h3>
       <button class="btn danger" id="wipe">Borrar todos los datos</button>
     </section>
-    <p class="hint" style="text-align:center;margin:0">DailyFuel · fase 1</p>`;
+    <p class="hint" style="text-align:center;margin:0">DailyFuel · fase 2</p>`;
   $("#chG").onclick = () => goalSheet(!g);
+  $("#aiSave").onclick = async () => {
+    const v = $("#aiKey").value.trim();
+    if(!v && !getKey()){ toast("Pega tu clave primero"); return; }
+    const prev = getKey(); if(v) setKey(v);
+    const st = $("#aiStatus"), btn = $("#aiSave"); btn.disabled = true; st.textContent = "Probando conexión con Gemini…";
+    try{
+      await geminiJSON([{text:'Responde exactamente: {"ok": true}'}], "Responde solo JSON.");
+      st.textContent = "Conexión correcta · modelo: " + getModel(); $("#aiKey").value = ""; toast("IA lista");
+      $("#aiDel").disabled = false;
+    }catch(e){
+      st.textContent = (e instanceof AIError ? e.message : "No se pudo conectar.") + (v && prev ? " Se mantuvo la clave anterior." : "");
+      if(v){ setKey(prev); if(!prev) $("#aiDel").disabled = true; }
+    }finally{ btn.disabled = false; }
+  };
+  $("#aiDel").onclick = () => confirmSheet("Quitar clave", "La pestaña Con IA quedará desactivada hasta que pegues una clave de nuevo.", "Quitar", () => { setKey(""); render(); toast("Clave quitada"); });
   if(installEvt) $("#inst").onclick = async () => { installEvt.prompt(); try{ await installEvt.userChoice; }catch(e){} installEvt = null; render(); };
   const json = () => JSON.stringify(S, null, 1);
   $("#exp").onclick = () => {
@@ -669,7 +936,7 @@ function renderAjustes(){
       let d; try{ d = JSON.parse(txt); }catch(err){ toast("El archivo no es un respaldo válido"); return; }
       if(!d || !Array.isArray(d.entries) || !Array.isArray(d.products) || !Array.isArray(d.goals)){ toast("El archivo no es un respaldo de DailyFuel"); return; }
       confirmSheet("Restaurar respaldo", `Se reemplazarán tus datos actuales por ${d.entries.length} registros y ${d.products.length} productos.`, "Restaurar", () => {
-        S = d; save(); render(); toast("Respaldo restaurado");
+        S = d; if(!Array.isArray(S.dishes)) S.dishes = []; save(); render(); toast("Respaldo restaurado");
       }, false);
     });
     e.target.value = "";
