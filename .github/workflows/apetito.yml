@@ -1,0 +1,79 @@
+# "¿Y mi apetito?": revisa cada 10 minutos si toca enviar un aviso de comida.
+# Los horarios los define la app y se guardan en la rama "apetito" (config.json).
+name: Y mi apetito
+
+on:
+  schedule:
+    - cron: "4-59/10 * * * *"
+  workflow_dispatch:
+    inputs:
+      prueba:
+        description: "Enviar una notificación de prueba"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apetito
+  cancel-in-progress: false
+
+jobs:
+  avisar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Traer horarios (rama apetito)
+        id: estado
+        run: |
+          if git ls-remote --exit-code --heads origin apetito >/dev/null; then
+            git fetch --depth 1 origin apetito
+            git worktree add state origin/apetito
+            echo "hay=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "Aún no hay horarios guardados desde la app."
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.estado.outputs.hay == '1'
+        with:
+          node-version: 20
+
+      - name: Enviar avisos
+        if: steps.estado.outputs.hay == '1'
+        env:
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          PRUEBA: ${{ github.event_name == 'workflow_dispatch' && inputs.prueba }}
+        run: |
+          npm install --no-save --no-audit --no-fund web-push@3.6.7 >/dev/null
+          node apetito/send.js
+
+      - name: Guardar registro de envíos
+        if: steps.estado.outputs.hay == '1'
+        run: |
+          cd state
+          if [ -n "$(git status --porcelain sent.json)" ]; then
+            git config user.name "apetito-bot"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add sent.json
+            git commit -q -m "apetito: avisos enviados"
+            git pull -q --rebase origin apetito || true
+            git push -q origin HEAD:apetito
+          fi
+
+      # GitHub apaga las tareas programadas si el repositorio pasa 60 días sin actividad.
+      - name: Mantener activo
+        run: |
+          last=$(git log -1 --format=%ct)
+          now=$(date +%s)
+          if [ $(( (now - last) / 86400 )) -ge 30 ]; then
+            date -u +%F > apetito/activo.txt
+            git config user.name "apetito-bot"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add apetito/activo.txt
+            git commit -q -m "apetito: mantener tareas activas"
+            git push -q
+          fi

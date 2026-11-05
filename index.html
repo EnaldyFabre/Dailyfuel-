@@ -100,7 +100,7 @@ nav.tabs button[aria-current="page"]{color:var(--accent);background:var(--soft)}
 .seg button{border:0;background:none;padding:9px;border-radius:9px;font-weight:700;color:var(--muted)}
 .seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
 label.f{display:flex;flex-direction:column;gap:6px;font-weight:600;font-size:14px}
-input[type=text],input[type=number],input[type=search],select{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--bg);font-size:16px}
+input[type=text],input[type=number],input[type=search],input[type=time],input[type=password],select{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--bg);font-size:16px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
 .chip{border:1px solid var(--line);background:var(--bg);border-radius:999px;padding:7px 12px;font-size:14px;font-weight:600}
@@ -110,6 +110,9 @@ textarea{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius
 .irow{border:1px solid var(--line);border-radius:14px;padding:10px;display:flex;flex-direction:column;gap:8px;background:var(--bg)}
 .irow input,.irow select{padding:9px 10px;background:var(--surface)}
 .irow-q{display:grid;grid-template-columns:1fr 92px 1fr auto;gap:8px;align-items:center}
+.irow .chips{flex-wrap:nowrap;gap:5px}
+.daychip{flex:1;min-width:0;padding:7px 0;text-align:center}
+.top .right{display:flex;align-items:center;gap:10px}
 .tag{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.03em;padding:2px 7px;border-radius:6px;background:var(--soft);color:var(--accent);vertical-align:1px}
 .btn:disabled{opacity:.6;cursor:progress}
 .calc{background:var(--soft);border-radius:12px;padding:12px 14px;font-weight:700;display:flex;justify-content:space-between}
@@ -152,7 +155,8 @@ textarea{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius
 <div class="app">
   <header class="top">
     <div class="brand">Daily<span>Fuel</span></div>
-    <div class="small muted" id="hdrGoal"></div>
+    <div class="right"><div class="small muted" id="hdrGoal"></div>
+      <button class="iconbtn" id="bell" aria-label="¿Y mi apetito? Recordatorios de comida"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg></button></div>
   </header>
   <main id="view" aria-live="polite"></main>
 </div>
@@ -184,9 +188,15 @@ function load(){
 }
 let S = load() || blank();
 if(!Array.isArray(S.dishes)) S.dishes = [];
+function defaultReminders(){
+  return [["desayuno","08:00"],["colacion","11:00"],["almuerzo","13:30"],["once","18:00"],["cena","21:00"]]
+    .map(([meal,time]) => ({meal, time, on:false, days:[1,2,3,4,5,6,7]}));
+}
+if(!Array.isArray(S.reminders)) S.reminders = defaultReminders();
 function save(){
   try{ localStorage.setItem(KEY, JSON.stringify(S)); storageOK = true; }
   catch(e){ storageOK = false; }
+  if(typeof writeState === "function") writeState();
 }
 
 /* ---------- Fechas ---------- */
@@ -476,11 +486,12 @@ async function analyzeFood({image, text, productIds}){
 }
 
 /* ---------- Agregar comida ---------- */
-function addSheet(){
+function addSheet(presetMeal){
   const date = UI.day;
+  const m0 = MEAL_NAME[presetMeal] ? presetMeal : defaultMeal();
   const recents = recentNames();
   const hasKey = !!getKey();
-  const mealChips = MEALS.map(([k,v]) => `<button type="button" class="chip" data-meal="${k}" aria-pressed="${k===defaultMeal()}">${v}</button>`).join("");
+  const mealChips = MEALS.map(([k,v]) => `<button type="button" class="chip" data-meal="${k}" aria-pressed="${k===m0}">${v}</button>`).join("");
   const catalog = [...S.products.map(p => ({...p, isDish:false})),
     ...S.dishes.map(d => ({id:d.id, name:d.name, basis:"porcion", kcal:d.kcal, portion:"porción", isDish:true, items:d.items}))];
   openSheet(`
@@ -532,7 +543,7 @@ function addSheet(){
       </div>` : `<p class="empty">Aún no tienes productos ni platos guardados. Agrega productos en la pestaña Productos, o guarda un plato después de analizarlo con IA.</p>`}
     </form>`,
   (el, close) => {
-    let meal = defaultMeal(), sel = null;
+    let meal = m0, sel = null;
     el.querySelectorAll("[data-meal]").forEach(b => b.onclick = () => {
       meal = b.dataset.meal; el.querySelectorAll("[data-meal]").forEach(x => x.setAttribute("aria-pressed", x===b));
     });
@@ -702,7 +713,8 @@ function renderHoy(){
   const t = todayISO();
   const remaining = g ? g.kcal - total : null;
   const label = d === t ? "Hoy" : d === addDays(t,-1) ? "Ayer" : fmtShort(d);
-  let html = `${!storageOK ? `<div class="banner">Este navegador no está guardando datos. Abre la app instalada para que tu registro se conserve.</div>` : ""}
+  const pend = d === t ? pendingMeals() : [];
+  let html = `${pend.length ? `<div class="card row between" style="border-color:var(--accent);background:var(--soft)"><div><div style="font-weight:800">¿Y mi apetito?</div><div class="small">Aún no registras: ${esc(pend.map(r => MEAL_NAME[r.meal].toLowerCase()).join(", "))}.</div></div><button class="btn" id="pendGo" data-meal="${pend[0].meal}">Registrar</button></div>` : ""}${!storageOK ? `<div class="banner">Este navegador no está guardando datos. Abre la app instalada para que tu registro se conserve.</div>` : ""}
   <div class="datebar">
     <button class="iconbtn" id="prevD" aria-label="Día anterior">${ICON.left}</button>
     <div class="label"><div>${esc(label)}</div><div class="small muted" style="font-weight:500">${esc(fmtLong(d))}</div></div>
@@ -732,6 +744,7 @@ function renderHoy(){
   }
   view.innerHTML = html;
   $("#prevD").onclick = () => { UI.day = addDays(UI.day,-1); render(); };
+  const pg = $("#pendGo"); if(pg) pg.onclick = () => { if(!goalFor(todayISO())){ goalSheet(true); return; } addSheet(pg.dataset.meal); };
   $("#nextD").onclick = () => { if(UI.day < t){ UI.day = addDays(UI.day,1); render(); } };
   view.querySelectorAll("[data-del]").forEach(b => b.onclick = () => {
     const e = S.entries.find(x => x.id === b.dataset.del);
@@ -932,8 +945,10 @@ function renderAjustes(){
       <h3 style="font-size:16px">Zona de cuidado</h3>
       <button class="btn danger" id="wipe">Borrar todos los datos</button>
     </section>
-    <p class="hint" style="text-align:center;margin:0">DailyFuel · fase 2</p>`;
+    <section class="card row between"><div><h3 style="font-size:16px">¿Y mi apetito?</h3><p class="hint" style="margin:0">Recordatorios de comida</p></div><button class="btn ghost" id="toAp">Abrir</button></section>
+    <p class="hint" style="text-align:center;margin:0">DailyFuel · fase 3</p>`;
   $("#chG").onclick = () => goalSheet(!g);
+  $("#toAp").onclick = () => go("apetito");
   $("#aiSave").onclick = async () => {
     const v = $("#aiKey").value.trim();
     if(!v && !getKey()){ toast("Pega tu clave primero"); return; }
@@ -975,14 +990,188 @@ function renderAjustes(){
       let d; try{ d = JSON.parse(txt); }catch(err){ toast("El archivo no es un respaldo válido"); return; }
       if(!d || !Array.isArray(d.entries) || !Array.isArray(d.products) || !Array.isArray(d.goals)){ toast("El archivo no es un respaldo de DailyFuel"); return; }
       confirmSheet("Restaurar respaldo", `Se reemplazarán tus datos actuales por ${d.entries.length} registros y ${d.products.length} productos.`, "Restaurar", () => {
-        S = d; if(!Array.isArray(S.dishes)) S.dishes = []; save(); render(); toast("Respaldo restaurado");
+        S = d; if(!Array.isArray(S.dishes)) S.dishes = []; if(!Array.isArray(S.reminders)) S.reminders = defaultReminders(); save(); render(); toast("Respaldo restaurado");
       }, false);
     });
     e.target.value = "";
   };
   $("#wipe").onclick = () => confirmSheet("Borrar todo", "Se eliminarán tu meta, registros y productos de este teléfono. No se puede deshacer.", "Borrar todo", () => {
-    S = blank(); save(); UI.day = todayISO(); go("hoy"); goalSheet(true);
+    S = blank(); S.reminders = defaultReminders(); save(); UI.day = todayISO(); go("hoy"); goalSheet(true);
   });
+}
+
+/* ---------- ¿Y mi apetito? (recordatorios push) ---------- */
+// Clave pública VAPID (la privada vive solo como secreto en GitHub).
+const VAPID_PUBLIC = "BD_iaSwubHHoyZ_ll_Afa0KFcfO3zweI-F2jHuE1InJRth0B78tzvWn6eqOUltvEaa71cygbvW_PcahNGok05hk";
+const GHKEY = "dailyfuel.github";
+const getGh = () => { try{ return localStorage.getItem(GHKEY) || ""; }catch(e){ return ""; } };
+const setGh = t => { try{ t ? localStorage.setItem(GHKEY, t) : localStorage.removeItem(GHKEY); }catch(e){} };
+const ON_PAGES = location.hostname.endsWith(".github.io");
+const REPO = { owner: location.hostname.split(".")[0], repo: location.pathname.split("/").filter(Boolean)[0] || "" };
+const DAY_LABELS = ["L","M","M","J","V","S","D"];
+const weekdayNum = (d = new Date()) => ((d.getDay() + 6) % 7) + 1; // lunes = 1
+
+function pendingMeals(){
+  const t = todayISO(), now = new Date(), wd = weekdayNum(now);
+  const nowMin = now.getHours()*60 + now.getMinutes();
+  const done = new Set(dayEntries(t).map(e => e.meal));
+  return S.reminders.filter(r => {
+    if(!r.on || !r.days.includes(wd) || done.has(r.meal)) return false;
+    const [h,m] = r.time.split(":").map(Number);
+    return nowMin >= h*60 + m + 30; // 30 min de gracia
+  });
+}
+
+// Estado del día que lee el service worker para personalizar la notificación
+function writeState(){
+  try{
+    if(!("caches" in window)) return;
+    const t = todayISO(), g = goalFor(t);
+    const st = {date:t, meals:[...new Set(dayEntries(t).map(e => e.meal))], total:dayTotal(t), goal: g ? g.kcal : null};
+    caches.open("df-state").then(c => c.put("state.json", new Response(JSON.stringify(st), {headers:{"Content-Type":"application/json"}}))).catch(()=>{});
+  }catch(e){}
+}
+
+const b64ToU8 = s => { const p = "=".repeat((4 - s.length % 4) % 4); const b = atob((s + p).replace(/-/g,"+").replace(/_/g,"/")); return Uint8Array.from(b, c => c.charCodeAt(0)); };
+async function swReg(){
+  if(!ON_PAGES || !("serviceWorker" in navigator)) return null;
+  return Promise.race([navigator.serviceWorker.ready, new Promise(r => setTimeout(() => r(null), 4000))]);
+}
+async function getSub(){ const reg = await swReg(); return reg && reg.pushManager ? reg.pushManager.getSubscription() : null; }
+async function subscribePush(){
+  if(!("Notification" in window) || !("PushManager" in window)) throw new Error("Este navegador no permite notificaciones push. Usa Chrome en Android.");
+  const perm = await Notification.requestPermission();
+  if(perm !== "granted") throw new Error("Las notificaciones están bloqueadas. Actívalas en Ajustes de Android → Apps → DailyFuel → Notificaciones.");
+  const reg = await swReg();
+  if(!reg) throw new Error("Abre la app instalada (desde su ícono) para activar los avisos.");
+  let sub = await reg.pushManager.getSubscription();
+  if(!sub) sub = await reg.pushManager.subscribe({userVisibleOnly:true, applicationServerKey:b64ToU8(VAPID_PUBLIC)});
+  return sub;
+}
+
+async function gh(path, opts = {}){
+  const headers = {"Accept":"application/vnd.github+json", "Authorization":`Bearer ${getGh()}`, "X-GitHub-Api-Version":"2022-11-28"};
+  if(opts.body) headers["Content-Type"] = "application/json";
+  try{ return await fetch(`https://api.github.com/repos/${REPO.owner}/${REPO.repo}${path}`, {...opts, headers}); }
+  catch(e){ throw new Error("Sin conexión con GitHub. Revisa tu internet."); }
+}
+async function ghErr(r, what = "escritura"){
+  let m = ""; try{ m = (await r.json()).message || ""; }catch(e){}
+  if(r.status === 401) return new Error("El token de GitHub no es válido o expiró. Crea uno nuevo.");
+  if(r.status === 403 || r.status === 404) return new Error(`El token no tiene permiso de ${what} en el repositorio. Revisa sus permisos.`);
+  return new Error(`GitHub respondió con un error (${r.status}). ${m.slice(0,120)}`);
+}
+async function syncReminders(){
+  if(!getGh()) throw new Error("Primero pega tu token de GitHub (paso 2).");
+  const sub = await getSub();
+  const cfg = { tz: Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Santiago", publicKey: VAPID_PUBLIC,
+    subscription: sub ? sub.toJSON() : null, updated: new Date().toISOString(),
+    reminders: S.reminders.map(r => ({meal:r.meal, label:MEAL_NAME[r.meal], time:r.time, on:r.on, days:r.days})) };
+  const br = await gh("/git/ref/heads/apetito");
+  if(br.status === 404){
+    const mainRef = await gh("/git/ref/heads/main");
+    if(!mainRef.ok) throw await ghErr(mainRef, "lectura");
+    const sha = (await mainRef.json()).object.sha;
+    const c = await gh("/git/refs", {method:"POST", body:JSON.stringify({ref:"refs/heads/apetito", sha})});
+    if(!c.ok) throw await ghErr(c);
+  } else if(!br.ok) throw await ghErr(br, "lectura");
+  let sha;
+  const f = await gh("/contents/config.json?ref=apetito");
+  if(f.ok) sha = (await f.json()).sha; else if(f.status !== 404) throw await ghErr(f, "lectura");
+  const content = btoa(unescape(encodeURIComponent(JSON.stringify(cfg, null, 1))));
+  const p = await gh("/contents/config.json", {method:"PUT", body:JSON.stringify({message:"apetito: horarios desde la app", content, branch:"apetito", ...(sha ? {sha} : {})})});
+  if(!p.ok) throw await ghErr(p);
+  S.apetito = {...(S.apetito || {}), synced: new Date().toISOString(), dirty:false, hasSub: !!sub};
+  save();
+}
+async function realTest(){
+  const r = await gh("/actions/workflows/apetito.yml/dispatches", {method:"POST", body:JSON.stringify({ref:"main", inputs:{prueba:true}})});
+  if(r.status !== 204) throw await ghErr(r, "Actions (lectura y escritura)");
+}
+
+function renderApetito(){
+  const perm = "Notification" in window ? Notification.permission : "unsupported";
+  const ap = S.apetito || {};
+  const fmtSync = ap.synced ? new Date(ap.synced).toLocaleString("es-CL", {day:"numeric", month:"short", hour:"2-digit", minute:"2-digit"}) : null;
+  const rows = S.reminders.map((r,i) => `
+    <div class="irow">
+      <div class="row between">
+        <label class="row" for="rOn${i}" style="font-weight:700"><input type="checkbox" id="rOn${i}" data-on="${i}" ${r.on ? "checked" : ""}> ${MEAL_NAME[r.meal]}</label>
+        <input type="time" id="rT${i}" data-t="${i}" value="${r.time}" aria-label="Hora de ${MEAL_NAME[r.meal]}" style="width:auto">
+      </div>
+      <div class="chips" role="group" aria-label="Días para ${MEAL_NAME[r.meal]}">${DAY_LABELS.map((d,k) => `<button type="button" class="chip daychip" data-day="${i}:${k+1}" aria-pressed="${r.days.includes(k+1)}" aria-label="${["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"][k]}">${d}</button>`).join("")}</div>
+    </div>`).join("");
+  view.innerHTML = `
+    <div class="row between"><h2 style="font-size:24px">¿Y mi apetito?</h2><button class="iconbtn" id="apBack" aria-label="Volver">${ICON.left}</button></div>
+    <p class="hint" style="margin:0">Elige a qué hora quieres que DailyFuel te recuerde cada comida. Si ya la registraste, el aviso te muestra tu avance del día en vez de recordártela.</p>
+    ${!ON_PAGES ? `<div class="banner">Esta es la vista previa. Configura los avisos desde la app instalada en tu teléfono.</div>` : ""}
+
+    <section class="card stack">
+      <div class="row between"><h3 style="font-size:16px">1. Notificaciones en este teléfono</h3>
+        <span class="pill ${perm === "granted" ? "good" : perm === "denied" ? "bad" : "idle"}">${perm === "granted" ? "Activadas" : perm === "denied" ? "Bloqueadas" : "Apagadas"}</span></div>
+      <div class="grid2"><button class="btn" id="apSub">${perm === "granted" ? "Reactivar" : "Activar"}</button><button class="btn ghost" id="apLocal" ${perm === "granted" ? "" : "disabled"}>Probar aquí</button></div>
+    </section>
+
+    <section class="card stack">
+      <div class="row between"><h3 style="font-size:16px">2. Conexión con GitHub</h3><span class="pill ${getGh() ? "good" : "idle"}">${getGh() ? "Conectado" : "Sin token"}</span></div>
+      <p class="hint" style="margin:0">El token permite que la app guarde tus horarios en tu repositorio. Se guarda solo en este teléfono y no va en los respaldos.</p>
+      <label class="f" for="apTok">Token de GitHub
+        <input id="apTok" type="password" autocomplete="off" spellcheck="false" placeholder="${getGh() ? "•••••••• guardado" : "github_pat_…"}"></label>
+      <div class="grid2"><button class="btn ghost" id="apTokSave">Guardar token</button><button class="btn ghost" id="apTokDel" ${getGh() ? "" : "disabled"}>Quitar</button></div>
+    </section>
+
+    <section class="card stack">
+      <h3 style="font-size:16px">3. Horarios</h3>
+      <div class="stack" style="gap:8px">${rows}</div>
+      <button class="btn block" id="apSync">Guardar y sincronizar</button>
+      <p class="small muted" id="apStatus" style="margin:0">${ap.dirty ? "Tienes cambios sin sincronizar." : fmtSync ? `Sincronizado: ${esc(fmtSync)}` : "Aún no sincronizas tus horarios."}</p>
+      <button class="btn ghost block" id="apTest" ${getGh() && ap.synced ? "" : "disabled"}>Enviar aviso de prueba real</button>
+      <p class="hint" style="margin:0">Los avisos pueden llegar hasta 15 o 30 minutos tarde: GitHub los programa según su carga. Si estás sin internet, llegan cuando te conectes.</p>
+    </section>`;
+
+  $("#apBack").onclick = () => go("hoy");
+  const markDirty = () => { S.apetito = {...(S.apetito || {}), dirty:true}; save(); $("#apStatus").textContent = "Tienes cambios sin sincronizar."; };
+  view.querySelectorAll("[data-on]").forEach(x => x.onchange = () => { S.reminders[+x.dataset.on].on = x.checked; markDirty(); });
+  view.querySelectorAll("[data-t]").forEach(x => x.onchange = () => { if(x.value){ S.reminders[+x.dataset.t].time = x.value; markDirty(); } });
+  view.querySelectorAll("[data-day]").forEach(x => x.onclick = () => {
+    const [i,d] = x.dataset.day.split(":").map(Number), r = S.reminders[i];
+    r.days = r.days.includes(d) ? r.days.filter(v => v !== d) : [...r.days, d].sort();
+    x.setAttribute("aria-pressed", r.days.includes(d)); markDirty();
+  });
+  $("#apSub").onclick = async () => {
+    try{ await subscribePush(); toast("Notificaciones activadas"); S.apetito = {...(S.apetito || {}), dirty:true}; save(); render(); }
+    catch(e){ toast(e.message); render(); }
+  };
+  $("#apLocal").onclick = async () => {
+    try{
+      const reg = await swReg();
+      if(!reg) throw new Error("Abre la app instalada para probar.");
+      await reg.showNotification("¿Y mi apetito?", {body:"Así se verán tus avisos de comida.", icon:"icon-192.png", badge:"icon-192.png", tag:"apetito-local"});
+    }catch(e){ toast(e.message || "No se pudo mostrar la notificación"); }
+  };
+  $("#apTokSave").onclick = async () => {
+    const v = $("#apTok").value.trim(); if(!v){ toast("Pega tu token primero"); return; }
+    const prev = getGh(); setGh(v);
+    const r = await gh("").catch(e => null);
+    if(!r || !r.ok){ setGh(prev); toast(r ? "GitHub no reconoce ese token o no tiene acceso a este repositorio" : "Sin conexión con GitHub"); return; }
+    toast("Token guardado"); render();
+  };
+  $("#apTokDel").onclick = () => confirmSheet("Quitar token", "Tus horarios quedan guardados en GitHub y los avisos siguen llegando, pero no podrás cambiarlos hasta pegar un token de nuevo.", "Quitar", () => { setGh(""); render(); });
+  $("#apSync").onclick = async () => {
+    const b = $("#apSync"); b.disabled = true; b.textContent = "Sincronizando…";
+    try{
+      if(S.reminders.some(r => r.on) && Notification.permission !== "granted") await subscribePush();
+      await syncReminders(); toast("Horarios sincronizados");
+      if(!S.apetito.hasSub) toast("Ojo: activa las notificaciones (paso 1) para recibir avisos");
+      render();
+    }catch(e){ toast(e.message); b.disabled = false; b.textContent = "Guardar y sincronizar"; }
+  };
+  $("#apTest").onclick = async () => {
+    const b = $("#apTest"); b.disabled = true;
+    try{ await realTest(); toast("Prueba enviada a GitHub: llega en 1 a 3 minutos"); }
+    catch(e){ toast(e.message); }
+    finally{ b.disabled = false; }
+  };
 }
 
 /* ---------- Navegación ---------- */
@@ -991,19 +1180,36 @@ function render(){
   $("#hdrGoal").textContent = g ? `Meta ${n0(g.kcal)} kcal` : "";
   document.querySelectorAll("nav.tabs [data-view]").forEach(b => b.setAttribute("aria-current", b.dataset.view === UI.view ? "page" : "false"));
   $("#fab").hidden = UI.view !== "hoy";
-  ({hoy:renderHoy, productos:renderProductos, resumen:renderResumen, ajustes:renderAjustes})[UI.view]();
+  ({hoy:renderHoy, productos:renderProductos, resumen:renderResumen, ajustes:renderAjustes, apetito:renderApetito})[UI.view]();
 }
 function go(v){ UI.view = v; window.scrollTo(0,0); render(); }
 document.querySelectorAll("nav.tabs [data-view]").forEach(b => b.onclick = () => go(b.dataset.view));
+$("#bell").onclick = () => go("apetito");
+// Abrir "Agregar" desde una notificación
+function openFromNotice(meal){
+  if(!MEAL_NAME[meal]) return;
+  UI.day = todayISO(); go("hoy");
+  if(!goalFor(todayISO())){ goalSheet(true); return; }
+  addSheet(meal);
+}
+try{ if("serviceWorker" in navigator) navigator.serviceWorker.addEventListener("message", ev => { if(ev.data && ev.data.type === "agregar") openFromNotice(ev.data.meal); }); }catch(e){}
 $("#fab").onclick = () => { if(!goalFor(todayISO())){ goalSheet(true); return; } addSheet(); };
 // Si el día cambia con la app abierta, avanzar a "hoy"
 let lastToday = todayISO();
 document.addEventListener("visibilitychange", () => {
-  if(document.visibilityState === "visible" && todayISO() !== lastToday){ if(UI.day === lastToday) UI.day = todayISO(); lastToday = todayISO(); render(); }
+  if(document.visibilityState !== "visible") return;
+  if(todayISO() !== lastToday){ if(UI.day === lastToday) UI.day = todayISO(); lastToday = todayISO(); }
+  writeState(); if(UI.view === "hoy") render();
 });
 
 render();
+writeState();
 if(!S.goals.length) goalSheet(true);
+else if(location.hash.startsWith("#agregar-")){
+  const meal = location.hash.slice(9);
+  try{ history.replaceState(null, "", location.pathname); }catch(e){}
+  openFromNotice(meal);
+}
 
 /* ---------- Modo offline (solo cuando está publicada en su propio sitio) ---------- */
 try{
